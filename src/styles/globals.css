@@ -1,0 +1,92 @@
+/* Global styles for React app */
+.loading {
+  position: relative;
+}
+
+.loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.min-vh-100 {
+  min-height: 100vh;
+}
+
+/* Alert container */
+#alert-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1055;
+  min-width: 300px;
+}
+
+/* Table enhancements */
+.table-hover tbody tr:hover {
+  background-color: rgba(0, 0, 0, 0.075);
+}
+
+/* Button groups */
+.btn-group .btn {
+  margin-right: 2px;
+}
+
+.btn-group .btn:last-child {
+  margin-right: 0;
+}
+
+/* Form enhancements */
+.is-invalid {
+  border-color: #dc3545;
+}
+
+.is-valid {
+  border-color: #198754;
+}
+
+/* Modal enhancements */
+.modal-backdrop {
+  backdrop-filter: blur(2px);
+}
+
+/* Work history entries */
+.work-history-entry {
+  background: #f8f9fa;
+  border-left: 4px solid #007bff;
+}
+
+/* Recruitment table */
+.recruitment-row.table-primary {
+  background-color: rgba(13, 110, 253, 0.1) !important;
+}
+
+/* Loading spinner */
+.spinner-border-sm {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .btn-group {
+    flex-direction: column;
+  }
+  
+  .btn-group .btn {
+    margin-right: 0;
+    margin-bottom: 2px;
+  }
+  
+  .table-responsive {
+    font-size: 0.875rem;
+  }
+}
