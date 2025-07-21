@@ -1,212 +1,124 @@
-// // src/hooks/useEmployees.js
-// import { useState, useCallback } from 'react';
-// import api from '../services/api.js';
+// src/hooks/useEmployees.js - ĐÃ REFACTOR
 
-// export const useEmployeeStats = () => {
-//     const [stats, setStats] = useState({
-//         totalEmployees: 0,
-//         activeEmployees: 0,
-//         inactiveEmployees: 0
-//     });
-//     const [loading, setLoading] = useState(false);
-    
-//     // ✅ Wrap fetchStats với useCallback để tránh re-creation
-//     const fetchStats = useCallback(async () => {
-//         console.log('\n🔍 FRONTEND: useEmployeeStats.fetchStats() called');
-//         setLoading(true);
-        
-//         try {
-//             console.log('📡 Making API request to /employees/stats...');
-//             const response = await api.get('/employees/stats');
-            
-//             console.log('📨 Full API Response:', response);
-//             console.log('✅ Success check:', response.data.success);
-//             console.log('📊 Stats data:', response.data.data);
-            
-//             if (response.data.success) {
-//                 console.log('✅ Setting stats to:', response.data.data);
-//                 setStats(response.data.data);
-//             } else {
-//                 console.warn('⚠️ API returned success: false');
-//             }
-            
-//         } catch (error) {
-//             console.error('❌ Error in fetchStats:', error);
-//         } finally {
-//             setLoading(false);
-//             console.log('🏁 fetchStats completed');
-//         }
-//     }, []); // ← ✅ Empty deps để tránh re-creation
-    
-//     return { stats, loading, fetchStats };
-// };
+import { useState, useEffect, useCallback } from 'react';
+import { employeeService } from '../services/employee.js';
+import { useNotification } from './useNotification.js';
 
-// src/hooks/useEmployees.js
-// src/hooks/useEmployees.js
-// src/hooks/useEmployees.js
-
-
-
-
-// --------------------------------------- v2 ---------------------------------------
-// import { useState, useCallback } from 'react';
-// import api from '../services/api.js';
-
-// export const useEmployeeStats = () => {
-//     const [stats, setStats] = useState({
-//         totalEmployees: 0,
-//         activeEmployees: 0,
-//         inactiveEmployees: 0
-//     });
-//     const [loading, setLoading] = useState(false);
-    
-//     const fetchStats = useCallback(async () => {
-//         console.log('🔍 FRONTEND: fetchStats called');
-//         setLoading(true);
-        
-//         try {
-//             // ✅ THÊM PREFIX /api vào đây
-//             const response = await api.get('/api/employees/stats');
-            
-//             console.log('📨 API Response:', response);
-            
-//             if (response.success) {
-//                 console.log('✅ Setting stats:', response.data);
-//                 setStats(response.data);
-//             } else {
-//                 console.warn('⚠️ API returned success: false');
-//             }
-            
-//         } catch (error) {
-//             console.error('❌ Error in fetchStats:', error);
-//         } finally {
-//             setLoading(false);
-//         }
-//     }, []);
-    
-//     return { stats, loading, fetchStats };
-// };
-
-
-import { useState, useEffect } from 'react';
-import * as employeeService from '../services/employee.js';
-import { useNotification } from './useNotification';
-
+/**
+ * Hook tùy chỉnh để quản lý dữ liệu và logic của Nhân viên.
+ * @returns {object} Trạng thái và các hàm xử lý.
+ */
 export const useEmployees = () => {
   const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { showNotification } = useNotification();
 
-  // Fetch all employees
-  const fetchEmployees = async () => {
+  /**
+   * Hàm để tải danh sách nhân viên từ server.
+   * Sử dụng useCallback để tránh việc tạo lại hàm một cách không cần thiết.
+   */
+  const fetchEmployees = useCallback(async () => {
+    console.log('HOOK: Bắt đầu tải danh sách nhân viên...');
     setLoading(true);
     setError(null);
-    
     try {
-      const response = await employeeService.getAllEmployees();
-      setEmployees(response.data || []);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
-      setError(error.message);
-      showNotification(error.message, 'error');
-      setEmployees([]);
+      const response = await employeeService.getAll();
+      if (response.success) {
+        setEmployees(response.data || []);
+        console.log('HOOK: Tải danh sách nhân viên thành công.', response.data);
+      } else {
+        throw new Error(response.message || 'Không thể tải danh sách nhân viên.');
+      }
+    } catch (err) {
+      console.error('HOOK: Lỗi khi tải danh sách nhân viên:', err);
+      setError(err.message);
+      showNotification(err.message, 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [showNotification]); // Phụ thuộc vào showNotification
 
-  // Add employee
-  const addEmployeeHandler = async (employeeData) => {
-    try {
-      const response = await employeeService.addEmployee(employeeData);
-      showNotification('Thêm nhân viên thành công!', 'success');
-      await fetchEmployees(); // Refresh list
-      return response;
-    } catch (error) {
-      console.error('Error adding employee:', error);
-      throw error; // Re-throw để component handle
-    }
-  };
-
-  // Update employee
-  const updateEmployeeHandler = async (employeeId, employeeData) => {
-    try {
-      const response = await employeeService.updateEmployee(employeeId, employeeData);
-      showNotification('Cập nhật nhân viên thành công!', 'success');
-      await fetchEmployees(); // Refresh list
-      return response;
-    } catch (error) {
-      console.error('Error updating employee:', error);
-      throw error;
-    }
-  };
-
-  // Delete employee
-  const deleteEmployeeHandler = async (employeeId) => {
-    try {
-      await employeeService.deleteEmployee(employeeId);
-      showNotification('Xóa nhân viên thành công!', 'success');
-      await fetchEmployees(); // Refresh list
-    } catch (error) {
-      console.error('Error deleting employee:', error);
-      showNotification(error.message, 'error');
-      throw error;
-    }
-  };
-
-  // Search employees
-  const searchEmployees = async (query) => {
-    setLoading(true);
-    try {
-      const response = await employeeService.searchEmployees(query);
-      setEmployees(response.data || []);
-    } catch (error) {
-      console.error('Error searching employees:', error);
-      showNotification(error.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Get work history
-  const getWorkHistory = async (employeeId) => {
-    try {
-      const response = await employeeService.getEmployeeWorkHistory(employeeId);
-      return response.data || [];
-    } catch (error) {
-      console.error('Error fetching work history:', error);
-      showNotification(error.message, 'error');
-      return [];
-    }
-  };
-
-  // Add work history
-  const addWorkHistoryHandler = async (workHistoryData) => {
-    try {
-      const response = await employeeService.addWorkHistory(workHistoryData);
-      showNotification('Thêm work history thành công!', 'success');
-      return response;
-    } catch (error) {
-      console.error('Error adding work history:', error);
-      throw error;
-    }
-  };
-
+  // Tự động gọi fetchEmployees khi component được mount lần đầu
   useEffect(() => {
     fetchEmployees();
-  }, []);
+  }, [fetchEmployees]); // Phụ thuộc vào hàm fetchEmployees đã được useCallback
 
+  /**
+   * Hàm để thêm một nhân viên mới.
+   */
+  const addEmployee = async (employeeData) => {
+      try {
+          setLoading(true);
+          const response = await employeeService.create(employeeData);
+          if (response.success) {
+              showNotification('Thêm nhân viên mới thành công!', 'success');
+              await fetchEmployees(); // fetchEmployees tự handle loading
+              return true;
+          } else {
+              throw new Error(response.message || 'Thêm nhân viên thất bại.');
+          }
+      } catch (err) {
+          console.error('HOOK: Lỗi khi thêm nhân viên:', err);
+          showNotification(err.message, 'error');
+          setLoading(false); // Chỉ set loading false khi error
+          return false;
+      }
+  };
+
+
+  /**
+   * Hàm để cập nhật thông tin nhân viên.
+   */
+  const updateEmployee = async (id, employeeData) => {
+    setLoading(true);
+    try {
+      const response = await employeeService.update(id, employeeData);
+      if (response.success) {
+        showNotification('Cập nhật thông tin nhân viên thành công!', 'success');
+        await fetchEmployees(); // Tải lại danh sách
+        return true;
+      } else {
+        throw new Error(response.message || 'Cập nhật thất bại.');
+      }
+    } catch (err) {
+      console.error('HOOK: Lỗi khi cập nhật nhân viên:', err);
+      showNotification(err.message, 'error');
+      setLoading(false);
+      return false;
+    }
+  };
+
+  /**
+   * Hàm để xóa nhân viên.
+   */
+  const deleteEmployee = async (id) => {
+    setLoading(true);
+    try {
+      const response = await employeeService.remove(id);
+      if (response.success) {
+        showNotification('Xóa nhân viên thành công!', 'success');
+        await fetchEmployees(); // Tải lại danh sách
+        return true;
+      } else {
+        throw new Error(response.message || 'Xóa nhân viên thất bại.');
+      }
+    } catch (err) {
+      console.error('HOOK: Lỗi khi xóa nhân viên:', err);
+      showNotification(err.message, 'error');
+      setLoading(false);
+      return false;
+    }
+  };
+
+  // Trả về state và các hàm để component có thể sử dụng
   return {
     employees,
     loading,
     error,
-    fetchEmployees,
-    addEmployee: addEmployeeHandler,
-    updateEmployee: updateEmployeeHandler,
-    deleteEmployee: deleteEmployeeHandler,
-    searchEmployees,
-    getWorkHistory,
-    addWorkHistory: addWorkHistoryHandler
+    addEmployee,
+    updateEmployee,
+    deleteEmployee,
+    refreshEmployees: fetchEmployees, // Cung cấp hàm để refresh thủ công nếu cần
   };
 };

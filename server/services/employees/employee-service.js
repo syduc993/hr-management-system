@@ -16,60 +16,36 @@ class EmployeeService extends BaseService {
         console.log('Initializing Employee Service...');
     }
 
-    // Thêm vào đầu method getAllEmployees
     async getAllEmployees() {
-        console.log('\n👥 EMPLOYEE SERVICE: getAllEmployees called');
-        
         const cacheKey = 'employees_all';
         let employees = CacheService.get(cacheKey);
-        
+
         if (employees) {
-            console.log('✅ Using cached employees data:', employees.length, 'records');
-            console.log('🔍 SERVICE: Cached data sample:', employees[0]);
+            console.log('✅ SERVICE: Sử dụng dữ liệu nhân viên từ cache.');
             return employees;
         }
-        
-        console.log('📡 SERVICE: Fetching employees from Lark API...');
-        console.log('🔍 SERVICE: Base ID:', this.baseId);
-        console.log('🔍 SERVICE: Table ID:', this.tableId);
-        
+
         try {
+            console.log('📡 SERVICE: Đang lấy dữ liệu nhân viên từ Lark API...');
             const response = await LarkClient.get(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`);
             
-            // 🚨 DEBUG: In ra response từ Lark API
-            console.log('🔍 SERVICE: Raw Lark response:', response);
-            console.log('🔍 SERVICE: Response.data:', response.data);
-            console.log('🔍 SERVICE: Response.data.items:', response.data?.items);
-            
-            if (response.data?.items && Array.isArray(response.data.items)) {
-                console.log('🔍 SERVICE: Items count:', response.data.items.length);
-                if (response.data.items.length > 0) {
-                    console.log('🔍 SERVICE: First raw item:', response.data.items[0]);
-                    console.log('🔍 SERVICE: First item fields:', response.data.items[0].fields);
-                }
-            }
-            
             employees = this.transformEmployeeData(response.data?.items || []);
+            console.log(`✅ SERVICE: Lấy và chuyển đổi thành công ${employees.length} nhân viên.`);
             
-            // 🚨 DEBUG: In ra dữ liệu sau khi transform
-            console.log('🔍 SERVICE: Transformed employees:', employees);
-            console.log('✅ SERVICE: Employees transformed:', employees.length, 'records');
+            CacheService.set(cacheKey, employees, 300000); // Cache trong 5 phút
             
-            if (employees.length > 0) {
-                console.log('🔍 SERVICE: First transformed employee:', employees[0]);
-            }
-            
-            CacheService.set(cacheKey, employees, 300000);
-            console.log('💾 SERVICE: Employees cached successfully');
-            
+            return employees;
         } catch (error) {
-            console.error('❌ SERVICE: Error fetching employees from Lark:', error);
-            console.log('🔄 SERVICE: Using mock data fallback...');
-            employees = this.getMockEmployees();
+            console.error('❌ SERVICE: Lỗi khi lấy dữ liệu nhân viên từ Lark:', error.message);
+            console.log('🔄 SERVICE: Sử dụng dữ liệu mẫu (mock data) làm phương án dự phòng.');
+            return this.getMockEmployees(); // Trả về mock data nếu có lỗi
         }
-        
-        return employees;
     }
+
+    generateEmployeeId(fullName, phoneNumber) {
+        return `${fullName} - ${phoneNumber}`;
+    }
+
 
     async addEmployee(employeeData) {
         try {
@@ -163,8 +139,6 @@ class EmployeeService extends BaseService {
     //}
 
     transformEmployeeData(larkData) {
-        console.log('🔄 SERVICE: Starting transform with data:', larkData);
-        console.log('🔍 SERVICE: LarkData length:', larkData?.length || 0);
         
         if (!Array.isArray(larkData)) {
             console.warn('⚠️ SERVICE: larkData is not an array:', typeof larkData);
@@ -172,14 +146,7 @@ class EmployeeService extends BaseService {
         }
         
         const transformed = larkData.map((record, index) => {
-            console.log(`\n🔍 SERVICE: Transforming record ${index}:`);
-            console.log('🔍 SERVICE: Record structure:', {
-                record_id: record.record_id,
-                fields: record.fields ? 'EXISTS' : 'MISSING',
-                fieldsKeys: record.fields ? Object.keys(record.fields) : 'NO_FIELDS'
-            });
-            console.log('🔍 SERVICE: Record fields content:', record.fields);
-            
+
             const result = {
                 id: record.record_id,
                 // ✅ SỬA: Sử dụng tên cột tiếng Việt từ Larkbase
@@ -197,11 +164,9 @@ class EmployeeService extends BaseService {
                 updatedAt: record.fields['Updated At'] || new Date().toISOString()
             };
             
-            console.log(`🔍 SERVICE: Transformed record ${index}:`, result);
             return result;
         });
         
-        console.log('✅ SERVICE: Transform completed:', transformed);
         return transformed;
     }
 

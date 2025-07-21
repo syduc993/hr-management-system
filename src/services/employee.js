@@ -1,107 +1,60 @@
-// src/services/employee.js - PHIÊN BẢN HOÀN CHỈNH
-import api from './api.js';
+import { ApiClient } from './api.js';
 
-// ==================== EMPLOYEE CRUD ====================
-export const getAllEmployees = async () => {
-  try {
-    const response = await api.get('/employees');
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Lấy danh sách nhân viên thất bại');
-  }
-};
+/**
+ * Service layer để quản lý các API liên quan đến Nhân viên.
+ */
+export const employeeService = {
+  /**
+   * Lấy danh sách tất cả nhân viên.
+   * @returns {Promise<object>} Response từ API.
+   */
+  getAll() {
+    console.log('SERVICE (FE): Gọi API lấy danh sách nhân viên...');
+    return ApiClient.get('/api/employees');
+  },
 
-export const addEmployee = async (employeeData) => {
-  try {
-    const response = await api.post('/employees', employeeData);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Thêm nhân viên thất bại');
-  }
-};
+  /**
+   * Thêm một nhân viên mới.
+   * @param {object} employeeData - Dữ liệu của nhân viên mới.
+   * @returns {Promise<object>} Response từ API.
+   */
+  create(employeeData) {
+    console.log('SERVICE (FE): Gọi API thêm nhân viên mới...', employeeData);
+    return ApiClient.post('/api/employees', employeeData);
+  },
 
-export const updateEmployee = async (employeeId, employeeData) => {
-  try {
-    const response = await api.put(`/employees/${employeeId}`, employeeData);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Cập nhật nhân viên thất bại');
-  }
-};
+  /**
+   * Cập nhật thông tin một nhân viên.
+   * @param {string} id - ID của nhân viên (record_id từ Lark).
+   * @param {object} employeeData - Dữ liệu cần cập nhật.
+   * @returns {Promise<object>} Response từ API.
+   */
+  update(id, employeeData) {
+    console.log(`SERVICE (FE): Gọi API cập nhật nhân viên ID: ${id}...`, employeeData);
+    return ApiClient.put(`/api/employees/${id}`, employeeData);
+  },
 
-export const deleteEmployee = async (employeeId) => {
-  try {
-    const response = await api.delete(`/employees/${employeeId}`);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Xóa nhân viên thất bại');
-  }
-};
+  /**
+   * Xóa một nhân viên.
+   * @param {string} id - ID của nhân viên (record_id từ Lark).
+   * @returns {Promise<object>} Response từ API.
+   */
+  remove(id) {
+    console.log(`SERVICE (FE): Gọi API xóa nhân viên ID: ${id}...`);
+    return ApiClient.delete(`/api/employees/${id}`);
+  },
 
-export const searchEmployees = async (query) => {
-  try {
-    const response = await api.get(`/employees/search?q=${encodeURIComponent(query)}`);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Tìm kiếm nhân viên thất bại');
-  }
-};
-
-// ==================== WORK HISTORY ====================
-export const getEmployeeWorkHistory = async (employeeId) => {
-  try {
-    const response = await api.get(`/employees/${encodeURIComponent(employeeId)}/work-history`);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Lấy work history thất bại');
-  }
-};
-
-export const addWorkHistory = async (workHistoryData) => {
-  try {
-    const response = await api.post('/employees/work-history', workHistoryData);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Thêm work history thất bại');
-  }
-};
-
-// ==================== RECRUITMENT ====================
-export const getRecruitmentRequests = async (filters = {}) => {
-  try {
-    const params = new URLSearchParams(filters).toString();
-    const response = await api.get(`/employees/recruitment-requests?${params}`);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Lấy danh sách tuyển dụng thất bại');
-  }
-};
-
-// ==================== STATS ====================
-export const getEmployeeStats = async () => {
-  try {
-    const response = await api.get('/employees/stats');
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Lấy thống kê nhân viên thất bại');
-  }
-};
-
-// ==================== MASTER DATA ====================
-export const getStores = async () => {
-  try {
-    const response = await api.get('/employees/stores');
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Lấy danh sách cửa hàng thất bại');
-  }
-};
-
-export const getPositions = async () => {
-  try {
-    const response = await api.get('/employees/positions');
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.message || 'Lấy danh sách vị trí thất bại');
+  /**
+   * Lấy danh sách các đề xuất tuyển dụng đã được duyệt.
+   * @returns {Promise<object>} Response từ API.
+   */
+  getApprovedRecruitmentRequests() {
+    console.log('SERVICE (FE): Gọi API lấy danh sách đề xuất tuyển dụng...');
+    
+    return ApiClient.get('/api/recruitment', {
+      params: {
+        status: 'Đang tuyển dụng'
+      }
+    });
   }
 };

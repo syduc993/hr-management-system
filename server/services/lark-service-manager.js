@@ -129,17 +129,6 @@ class LarkServiceManager {
         return await this.services.attendance.getEmployeeHours();
     }
 
-    // ==================== RECRUITMENT METHODS ====================
-    async getRecruitmentRequests(filters = {}) {
-        await this.ensureInitialized();
-        return await this.services.recruitment.getRecruitmentRequests(filters);
-    }
-
-    async addRecruitmentRequest(requestData) {
-        await this.ensureInitialized();
-        return await this.services.recruitment.addRecruitmentRequest(requestData);
-    }
-
     // ==================== STORE METHODS ====================
     async getAllStores() {
         await this.ensureInitialized();
@@ -180,22 +169,6 @@ class LarkServiceManager {
     async deletePosition(id) {
         await this.ensureInitialized();
         return await this.services.position.deletePosition(id);
-    }
-
-    // ==================== RECRUITMENT METHODS ====================
-    async getRecruitmentRequests(filters = {}) {
-        await this.ensureInitialized();
-        return await this.services.recruitment.getRecruitmentRequests(filters);
-    }
-
-    async addRecruitmentRequest(requestData) {
-        await this.ensureInitialized();
-        return await this.services.recruitment.addRecruitmentRequest(requestData);
-    }
-
-    async updateRecruitmentRequest(id, requestData) {
-        await this.ensureInitialized();
-        return await this.services.recruitment.updateRecruitmentRequest(id, requestData);
     }
 }
 

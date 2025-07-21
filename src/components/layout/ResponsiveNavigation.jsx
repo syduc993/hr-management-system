@@ -25,12 +25,7 @@ const ResponsiveNavigation = () => {
 
   // Menu items configuration
   const menuItems = [
-    {
-      path: '/dashboard',
-      icon: 'fas fa-tachometer-alt',
-      label: 'Dashboard',
-      roles: ['admin', 'hr', 'sales_manager', 'finance_manager', 'director']
-    },
+
     {
       path: '/employee-management',
       icon: 'fas fa-users-cog',

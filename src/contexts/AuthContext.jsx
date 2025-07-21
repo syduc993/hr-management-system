@@ -15,31 +15,28 @@ export const AuthProvider = ({ children }) => {
   const initializeAuth = async () => {
     try {
       setLoading(true);
-      const user = await checkAuth();
-      setUser(user);
-      setInitialized(true);
+      // ✅ SỬA: Thay thế checkAuth() bằng việc gọi trực tiếp getProfile từ ApiClient
+      const response = await ApiClient.get('/api/auth/profile');
+      if (response.success && response.data.user) {
+        setUser(response.data.user);
+      } else {
+        setUser(null);
+      }
     } catch (error) {
-      console.error('Auth initialization error:', error);
+      console.warn('Auth initialization: Not logged in.');
       setUser(null);
     } finally {
+      setInitialized(true);
       setLoading(false);
     }
   };
 
+  // Hàm checkAuth cũ có thể xóa hoặc giữ lại nếu cần
   const checkAuth = async () => {
     try {
-      const response = await fetch('/api/auth/profile', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        return data.user;
-      } else {
-        return null;
-      }
+      const response = await ApiClient.get('/api/auth/profile');
+      return response.success ? response.data.user : null;
     } catch (error) {
-      console.error('Auth check error:', error);
       return null;
     }
   };
@@ -49,14 +46,18 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const response = await ApiClient.post('/api/auth/login', credentials);
       
-      if (response.user) {
-        setUser(response.user);
-        return response;
+      // ✅ SỬA LOGIC KIỂM TRA TẠI ĐÂY
+      // Kiểm tra `response.data.user` thay vì `response.user`
+      if (response.success && response.data && response.data.user) {
+        setUser(response.data.user);
+        return response.data; // Trả về `response.data` để LoginPage có thể sử dụng
       } else {
-        throw new Error('Login failed');
+        // Ném lỗi với thông điệp từ server nếu có
+        throw new Error(response.message || 'Login failed: Invalid response structure');
       }
     } catch (error) {
       console.error('Login error:', error);
+      // Đảm bảo ném lại lỗi để component gọi có thể bắt được
       throw error;
     } finally {
       setLoading(false);
@@ -68,17 +69,13 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       await ApiClient.post('/api/auth/logout');
       setUser(null);
-      
-      // Redirect after logout
-      setTimeout(() => {
-        window.location.href = '/login';
-      }, 1000);
-      
+      // Chuyển hướng về trang login một cách an toàn
+      window.location.assign('/login');
     } catch (error) {
       console.error('Logout error:', error);
-      // Force logout even if API fails
+      // Vẫn xóa user và chuyển hướng dù API có lỗi
       setUser(null);
-      window.location.href = '/login';
+      window.location.assign('/login');
     } finally {
       setLoading(false);
     }
@@ -102,14 +99,6 @@ export const AuthProvider = ({ children }) => {
     return false;
   };
 
-  const isHR = () => {
-    return user && (user.role === 'hr' || user.role === 'admin');
-  };
-
-  const isAdmin = () => {
-    return user && user.role === 'admin';
-  };
-
   const value = {
     user,
     loading,
@@ -119,8 +108,6 @@ export const AuthProvider = ({ children }) => {
     checkAuth,
     updateUserInfo,
     hasRole,
-    isHR,
-    isAdmin
   };
 
   return (

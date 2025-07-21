@@ -81,10 +81,8 @@ class RecruitmentService extends BaseService {
 
 
     transformRecruitmentData(larkData) {
-        console.log('🔄 RECRUITMENT: Starting transform with data:', larkData);
         
         return larkData.map(record => {
-            console.log('🔍 RECRUITMENT: Processing record:', record.fields);
             
             const result = {
                 id: record.record_id,
@@ -102,7 +100,6 @@ class RecruitmentService extends BaseService {
                 approvalStatus: record.fields['Status'] || 'pending'
             };
             
-            console.log('🔍 RECRUITMENT: Transformed result:', result);
             return result;
         });
     }

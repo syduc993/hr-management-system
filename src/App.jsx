@@ -3,20 +3,18 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { useNotification } from './hooks/useNotification';
 
-// Components
+// Components - Thành phần giao diện
 import Layout from './components/layout/Layout';
 import Loading from './components/common/Loading';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
-// Pages
+// Pages - Các trang chính
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
 import EmployeeManagementPage from './pages/EmployeeManagementPage';
 import AttendanceLogsPage from './pages/AttendanceLogsPage';
 import HRDashboardPage from './pages/HRDashboardPage';
 
-
-// Global styles
+// Global styles - Styles toàn cục
 import './styles/globals.css';
 
 const App = () => {
@@ -29,29 +27,26 @@ const App = () => {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        console.log('🚀 Starting React app initialization...');
+        console.log('🚀 Bắt đầu khởi tạo ứng dụng React...');
         
-        // Initialize global utilities
         initializeGlobalUtilities();
         
-        // Check authentication for protected pages
         if (isProtectedPage()) {
-          console.log('🔐 Checking authentication...');
+          console.log('🔐 Đang kiểm tra xác thực...');
           const authUser = await checkAuth();
           if (!authUser && !isPublicPage()) {
-            console.log('❌ Authentication failed for protected page');
+            console.log('❌ Xác thực thất bại cho trang được bảo vệ');
             return;
           }
-          console.log('✅ Authentication check completed');
+          console.log('✅ Hoàn thành kiểm tra xác thực');
         }
         
         setInitialized(true);
-        console.log('✅ React app initialization completed successfully');
+        console.log('✅ Khởi tạo ứng dụng React thành công');
         
       } catch (error) {
-        console.error('❌ App initialization error:', error);
+        console.error('❌ Lỗi khởi tạo ứng dụng:', error);
         
-        // More specific error handling
         if (error.name === 'TypeError') {
           showNotification('Lỗi tải module. Vui lòng refresh trang.', 'error');
         } else if (error.message.includes('fetch')) {
@@ -69,7 +64,6 @@ const App = () => {
 
   const initializeGlobalUtilities = () => {
     try {
-      // Initialize tooltips safely
       if (typeof window.bootstrap !== 'undefined') {
         const tooltipTriggerList = [].slice.call(
           document.querySelectorAll('[data-bs-toggle="tooltip"]')
@@ -79,7 +73,7 @@ const App = () => {
         });
       }
     } catch (error) {
-      console.warn('Error initializing tooltips:', error);
+      console.warn('Lỗi khởi tạo tooltips:', error);
     }
   };
 
@@ -93,7 +87,6 @@ const App = () => {
     return publicPaths.includes(location.pathname);
   };
 
-  // Show loading spinner during initialization
   if (loading || authLoading) {
     return (
       <div className="d-flex justify-content-center align-items-center min-vh-100">
@@ -102,7 +95,6 @@ const App = () => {
     );
   }
 
-  // Show error message if initialization failed
   if (!initialized) {
     return (
       <div className="container mt-5">
@@ -127,8 +119,17 @@ const App = () => {
 
   return (
     <div className="App">
+      {/* ✅ BƯỚC 1: Thêm container cho thông báo tại đây */}
+      <div id="alert-container" style={{
+        position: 'fixed',
+        top: '20px',
+        right: '20px',
+        zIndex: 1055,
+        minWidth: '300px'
+      }}></div>
+
       <Routes>
-        {/* Public routes */}
+        {/* Các route công khai */}
         <Route 
           path="/login" 
           element={
@@ -136,7 +137,7 @@ const App = () => {
           } 
         />
         
-        {/* Protected routes with Layout */}
+        {/* Các route được bảo vệ với Layout */}
         <Route 
           path="/" 
           element={
@@ -145,21 +146,12 @@ const App = () => {
             </ProtectedRoute>
           }
         >
-          {/* Default redirect */}
+          {/* Redirect mặc định */}
           <Route index element={<Navigate to="/dashboard" replace />} />
           
-          {/* Dashboard routes */}
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route 
-            path="hr-dashboard" 
-            element={
-              <ProtectedRoute requiredRoles={['hr', 'admin']}>
-                <HRDashboardPage />
-              </ProtectedRoute>
-            } 
-          />
+          <Route path="dashboard" element={<HRDashboardPage />} />
           
-          {/* Employee management routes */}
+          {/* Route quản lý nhân viên */}
           <Route 
             path="employee-management" 
             element={
@@ -169,11 +161,11 @@ const App = () => {
             } 
           />
           
-          {/* Attendance routes */}
+          {/* Route nhật ký chấm công */}
           <Route path="attendance-logs" element={<AttendanceLogsPage />} />
         </Route>
 
-        {/* Catch all route */}
+        {/* Route bắt tất cả */}
         <Route 
           path="*" 
           element={

@@ -40,13 +40,8 @@ const Layout = () => {
         </main>
       </div>
 
-      {/* Alert container for notifications */}
-      <div id="alert-container" className="position-fixed" style={{
-        top: '20px',
-        right: '20px',
-        zIndex: 1055,
-        minWidth: '300px'
-      }}></div>
+      {/* ✅ BƯỚC 2: Xóa bỏ Alert Container khỏi đây */}
+      {/* Div đã được di chuyển ra App.jsx */}
     </div>
   );
 };

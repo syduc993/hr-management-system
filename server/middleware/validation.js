@@ -1,27 +1,50 @@
-// server/middleware/validation.js (MỚI)
-//import ResponseFormatter from '../utils/response-formatter.js';
+// server/middleware/validation.js
 import { formatResponse } from '../services/utils/response-formatter.js';
+import { EmployeeValidator } from '../services/employees/index.js';
+import { MasterDataValidator } from '../services/master-data/index.js';
 
 class ValidationMiddleware {
-    static validateEmployee(req, res, next) {
-        const { fullName, phoneNumber, gender, hourlyRate, bankAccount, bankName } = req.body;
-        
-        const errors = [];
-        
-        if (!fullName || fullName.trim().length < 2) {
-            errors.push('Họ tên phải có ít nhất 2 ký tự');
+    // Middleware để validate dữ liệu nhân viên mới
+    static validateAddEmployee(req, res, next) {
+        // Kiểm tra dữ liệu nhân viên
+        const employeeErrors = EmployeeValidator.validateEmployeeData(req.body);
+        if (employeeErrors.length > 0) {
+            return res.status(400).json(formatResponse(false, employeeErrors.join(', '), null, 'VALIDATION_ERROR'));
+        }
+
+        // Kiểm tra dữ liệu work history
+        const workHistoryErrors = EmployeeValidator.validateWorkHistoryData(req.body.workHistoryData || []);
+        if (workHistoryErrors.length > 0) {
+            return res.status(400).json(formatResponse(false, workHistoryErrors.join(', '), null, 'VALIDATION_ERROR'));
         }
         
-        if (!phoneNumber || !/^\d{10,11}$/.test(phoneNumber)) {
-            errors.push('Số điện thoại không hợp lệ');
-        }
-        
+        next();
+    }
+
+    // Middleware để validate dữ liệu khi cập nhật nhân viên (có thể khác với khi thêm mới)
+    static validateUpdateEmployee(req, res, next) {
+        const errors = EmployeeValidator.validateEmployeeData(req.body);
         if (errors.length > 0) {
-            return res.status(400).json(
-                formatResponse(false, errors.join(', '), null, 'VALIDATION_ERROR')
-            );
+            return res.status(400).json(formatResponse(false, errors.join(', '), null, 'VALIDATION_ERROR'));
         }
-        
+        next();
+    }
+    
+    // Middleware để validate dữ liệu cửa hàng
+    static validateStore(req, res, next) {
+        const errors = MasterDataValidator.validateStoreData(req.body);
+         if (errors.length > 0) {
+            return res.status(400).json(formatResponse(false, errors.join(', '), null, 'VALIDATION_ERROR'));
+        }
+        next();
+    }
+    
+    // Middleware để validate dữ liệu vị trí
+    static validatePosition(req, res, next) {
+        const errors = MasterDataValidator.validatePositionData(req.body);
+         if (errors.length > 0) {
+            return res.status(400).json(formatResponse(false, errors.join(', '), null, 'VALIDATION_ERROR'));
+        }
         next();
     }
 }

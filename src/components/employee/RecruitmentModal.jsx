@@ -1,39 +1,122 @@
 // src/components/employee/RecruitmentModal.jsx
 import React, { useState, useEffect } from 'react';
-import { ApiClient } from '../../services/api';
+import { employeeService } from '../../services/employee';
 import { useNotification } from '../../hooks/useNotification';
 import Loading from '../common/Loading';
 
 const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecruitment = null }) => {
-  const [recruitmentData, setRecruitmentData] = useState([]);
+  const [recruitmentRequests, setRecruitmentRequests] = useState([]);
   const [loading, setLoading] = useState(false);
-  // ✅ SỬA: Chỉ cho phép chọn 1 đề xuất
   const [selectedItem, setSelectedItem] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const { showNotification } = useNotification();
 
   useEffect(() => {
     if (isOpen) {
-      loadRecruitmentData();
-      // ✅ SỬA: Set selected item từ props
+      loadRecruitmentRequests();
+      // Set selected item từ props
       setSelectedItem(selectedRecruitment);
     }
   }, [isOpen, selectedRecruitment]);
 
-  const loadRecruitmentData = async () => {
+  // ✅ THÊM: Helper function để extract requestNo từ structure phức tạp
+  const extractRequestNo = (requestNoData) => {
+    if (!requestNoData) return '';
+    
+    console.log('🔍 RECRUITMENT MODAL: extractRequestNo input:', requestNoData);
+    console.log('🔍 RECRUITMENT MODAL: requestNoData type:', typeof requestNoData);
+    
+    // Nếu là object với structure { "link": "...", "text": "202507140017" }
+    if (typeof requestNoData === 'object' && requestNoData !== null) {
+      if (requestNoData.text) {
+        console.log('🔍 RECRUITMENT MODAL: Found text property:', requestNoData.text);
+        return requestNoData.text;
+      }
+      
+      // Nếu là object nhưng có key khác
+      if (requestNoData.value) {
+        console.log('🔍 RECRUITMENT MODAL: Found value property:', requestNoData.value);
+        return requestNoData.value;
+      }
+      
+      // Nếu object có toString() method
+      console.log('🔍 RECRUITMENT MODAL: Converting object to string');
+      return requestNoData.toString();
+    }
+    
+    // Nếu là string trực tiếp
+    if (typeof requestNoData === 'string') {
+      console.log('🔍 RECRUITMENT MODAL: Direct string:', requestNoData);
+      return requestNoData;
+    }
+    
+    // Fallback
+    console.log('🔍 RECRUITMENT MODAL: Using fallback conversion');
+    return requestNoData?.toString() || '';
+  };
+
+  // ✅ THÊM: Helper function để extract tên người yêu cầu
+  const extractRequesterName = (requesterData) => {
+    if (!requesterData) return '';
+    
+    console.log('🔍 RECRUITMENT MODAL: extractRequesterName input:', requesterData);
+    
+    // Nếu là array [{ "name": "236LH.Nguyễn Huy Thành", ... }]
+    if (Array.isArray(requesterData)) {
+      return requesterData.map(user => 
+        user.name || user.en_name || user.id || 'Unknown'
+      ).join(', ');
+    }
+    
+    // Nếu là object { "name": "236LH.Nguyễn Huy Thành", ... }
+    if (typeof requesterData === 'object' && requesterData !== null) {
+      return requesterData.name || requesterData.en_name || requesterData.id || 'Unknown';
+    }
+    
+    // Nếu là string trực tiếp
+    return requesterData.toString();
+  };
+
+  const loadRecruitmentRequests = async () => {
     try {
       setLoading(true);
-      const response = await ApiClient.get('/api/recruitment');
+      console.log('🔍 RECRUITMENT MODAL: Loading recruitment requests...');
       
-      if (response.success) {
-        setRecruitmentData(response.data || []);
+      const response = await employeeService.getApprovedRecruitmentRequests();
+      console.log('🔍 RECRUITMENT MODAL: Raw API response:', response);
+      
+      if (response.success && Array.isArray(response.data)) {
+        // ✅ THÊM: Process data để extract requestNo và requester đúng cách
+        const processedData = response.data.map((item, index) => {
+          console.log(`🔍 RECRUITMENT MODAL: Processing item ${index}:`, item);
+          
+          const processedItem = {
+            ...item,
+            requestNo: extractRequestNo(item.requestNo),
+            requester: extractRequesterName(item.requester)
+          };
+          
+          console.log(`🔍 RECRUITMENT MODAL: Processed item ${index}:`, processedItem);
+          return processedItem;
+        });
+        
+        console.log('🔍 RECRUITMENT MODAL: Final processed data:', processedData);
+        setRecruitmentRequests(processedData);
+        
+        // Debug first item
+        if (processedData.length > 0) {
+          console.log('🔍 RECRUITMENT MODAL: First item structure:', processedData[0]);
+          console.log('🔍 RECRUITMENT MODAL: First item requestNo type:', typeof processedData[0].requestNo);
+          console.log('🔍 RECRUITMENT MODAL: First item requestNo value:', processedData[0].requestNo);
+        }
+        
       } else {
         throw new Error(response.message || 'Lỗi khi tải dữ liệu');
       }
     } catch (error) {
-      console.error('Error loading recruitment data:', error);
+      console.error('❌ RECRUITMENT MODAL: Error loading recruitment requests:', error);
       showNotification('Lỗi khi tải dữ liệu tuyển dụng. Sử dụng dữ liệu mẫu.', 'warning');
-      setRecruitmentData(getMockData());
+      setRecruitmentRequests(getMockData());
     } finally {
       setLoading(false);
     }
@@ -68,15 +151,16 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
     ];
   };
 
-  const filteredData = recruitmentData.filter(item =>
+  const filteredData = recruitmentRequests.filter(item =>
     item.requestNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.requester?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.position?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // ✅ SỬA: Handle single selection
+  // Handle single selection
   const handleItemSelect = (item) => {
+    console.log('🔍 RECRUITMENT MODAL: handleItemSelect called with:', item);
     setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
   };
 
@@ -86,13 +170,33 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
       return;
     }
     
-    // ✅ SỬA: Chỉ trả về text của Request No.
-    onRecruitmentSelected([selectedItem]);
+    console.log('🔍 RECRUITMENT MODAL: selectedItem before confirm:', selectedItem);
+    console.log('🔍 RECRUITMENT MODAL: selectedItem.requestNo:', selectedItem.requestNo);
+    console.log('🔍 RECRUITMENT MODAL: typeof selectedItem.requestNo:', typeof selectedItem.requestNo);
+    
+    // ✅ SỬA: Kiểm tra requestNo có hợp lệ không
+    if (!selectedItem.requestNo || selectedItem.requestNo === 'undefined') {
+      console.error('❌ RECRUITMENT MODAL: Invalid requestNo:', selectedItem.requestNo);
+      showNotification('Đề xuất tuyển dụng không hợp lệ. Vui lòng chọn lại.', 'error');
+      return;
+    }
+    
+    // ✅ SỬA: Tạo object với requestNo đã được extract
+    const processedItem = {
+      ...selectedItem,
+      requestNo: selectedItem.requestNo // Đã được extract trong loadRecruitmentRequests
+    };
+    
+    console.log('🔍 RECRUITMENT MODAL: Final processed item for callback:', processedItem);
+    
+    // Gửi về component cha
+    onRecruitmentSelected(processedItem); // ✅ SỬA: Gửi object thay vì array
     onClose();
   };
 
   const handleCancel = () => {
     setSelectedItem(selectedRecruitment);
+    setSearchTerm(''); // Clear search term
     onClose();
   };
 
@@ -129,6 +233,15 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
+                  {searchTerm && (
+                    <button
+                      className="btn btn-outline-secondary"
+                      type="button"
+                      onClick={() => setSearchTerm('')}
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -174,7 +287,6 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
                           onClick={() => handleItemSelect(item)}
                         >
                           <td>
-                            {/* ✅ SỬA: Dùng radio button thay vì checkbox */}
                             <input
                               type="radio"
                               className="form-check-input"
@@ -242,10 +354,10 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
               type="button"
               className="btn btn-primary"
               onClick={handleConfirm}
-              disabled={!selectedItem}
+              disabled={!selectedItem || loading}
             >
               <i className="fas fa-check me-2"></i>
-              Xác nhận
+              Xác nhận{selectedItem ? ` (${selectedItem.requestNo})` : ''}
             </button>
           </div>
         </div>
