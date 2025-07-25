@@ -1,7 +1,7 @@
 // Work history service
 import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
-
+import CacheService from '../core/cache-service.js';
 
 
 // **HÀM TIỆN ÍCH ĐỊNH DẠNG NGÀY**
@@ -209,6 +209,34 @@ class WorkHistoryService extends BaseService {
     //         throw error;
     //     }
     // }
+
+
+    // Thêm method này vào class WorkHistoryService
+    async getAllWorkHistory() {
+        const cacheKey = 'work_history_all';
+        let history = CacheService.get(cacheKey);
+
+        if (history) {
+            console.log(`✅ WORK HISTORY: Loaded ${history.length} records from cache.`);
+            return history;
+        }
+
+        try {
+            console.log('📡 WORK HISTORY: Fetching all work history from Lark...');
+            const response = await LarkClient.getAllRecords(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
+            );
+
+            history = this.transformWorkHistoryData(response.data?.items || []);
+            console.log(`✅ WORK HISTORY: Transformed ${history.length} total records.`);
+
+            CacheService.set(cacheKey, history, 300000);
+            return history;
+        } catch (error) {
+            console.error('❌ Error getting all work history:', error);
+            return [];
+        }
+    }
 
 
 

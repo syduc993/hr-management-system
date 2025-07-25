@@ -283,6 +283,144 @@ class RecruitmentService extends BaseService {
         return result;
     }
 
+    async getDetailedHoursForRequest(requestNo) {
+        try {
+            console.log(`📊 Getting detailed hours for request: ${requestNo}`);
+            
+            // Lấy chi tiết từ bảng Hours Summary (tblV2dGhT2O7w30b)
+            const response = await LarkClient.getAllRecords(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.hoursSummaryTableId}/records`
+            );
+            
+            const allRecords = response.data?.items || [];
+            console.log(`📄 Found ${allRecords.length} total records in hours summary table`);
+            
+            // Lấy danh sách nhân viên thuộc request này từ Work History
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            const workHistoryRecords = await workHistoryService.getAllWorkHistory(); // Cần thêm method này
+            
+            const employeesInRequest = workHistoryRecords
+                .filter(wh => wh.requestNo === requestNo)
+                .map(wh => wh.employeeId);
+                
+            console.log(`👥 Employees in request ${requestNo}:`, employeesInRequest);
+            
+            // Lọc và transform dữ liệu
+            const detailedRecords = [];
+            
+            allRecords.forEach(record => {
+                const fields = record.fields;
+                
+                // Lấy mã nhân viên
+                const employeeIdField = fields['Mã nhân viên'];
+                let employeeId = '';
+                if (Array.isArray(employeeIdField) && employeeIdField.length > 0) {
+                    employeeId = employeeIdField[0]?.text;
+                } else if (typeof employeeIdField === 'string') {
+                    employeeId = employeeIdField;
+                }
+                
+                // Chỉ lấy bản ghi của nhân viên thuộc request này
+                if (employeesInRequest.includes(employeeId)) {
+                    detailedRecords.push({
+                        employeeId: employeeId,
+                        workDate: this.formatLarkDate(fields['Ngày chấm công']),
+                        checkInTime: this.formatLarkTime(fields['Thời gian chấm công vào']),
+                        checkOutTime: this.formatLarkTime(fields['Thời gian chấm công ra']),
+                        totalHours: fields['Tổng số giờ làm'] || 0,
+                        requestNo: requestNo
+                    });
+                }
+            });
+            
+            console.log(`✅ Retrieved ${detailedRecords.length} detailed records for request ${requestNo}`);
+            return detailedRecords;
+            
+        } catch (error) {
+            console.error('❌ Error getting detailed hours for request:', error);
+            throw error;
+        }
+    }
+
+
+    formatLarkDate(dateValue) {
+        if (!dateValue) return '';
+        
+        try {
+            let date;
+            
+            // Nếu là timestamp (number)
+            if (typeof dateValue === 'number') {
+                date = new Date(dateValue);
+            } 
+            // Nếu là string ISO
+            else if (typeof dateValue === 'string') {
+                date = new Date(dateValue);
+            }
+            // Nếu đã là Date object
+            else if (dateValue instanceof Date) {
+                date = dateValue;
+            }
+            else {
+                return 'Invalid Date';
+            }
+            
+            // Kiểm tra tính hợp lệ của date
+            if (isNaN(date.getTime())) {
+                return 'Invalid Date';
+            }
+            
+            // Format thành DD/MM/YYYY
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            
+            return `${day}/${month}/${year}`;
+        } catch (error) {
+            console.error('Error formatting Lark date:', error);
+            return 'Format Error';
+        }
+    }
+
+    formatLarkTime(timeValue) {
+        if (!timeValue) return '';
+        
+        try {
+            let date;
+            
+            // Nếu là timestamp (number)
+            if (typeof timeValue === 'number') {
+                date = new Date(timeValue);
+            }
+            // Nếu là string ISO
+            else if (typeof timeValue === 'string') {
+                date = new Date(timeValue);
+            }
+            // Nếu đã là Date object
+            else if (timeValue instanceof Date) {
+                date = timeValue;
+            }
+            else {
+                return 'Invalid Time';
+            }
+            
+            // Kiểm tra tính hợp lệ của date
+            if (isNaN(date.getTime())) {
+                return 'Invalid Time';
+            }
+            
+            // Format thành HH:MM
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            
+            return `${hours}:${minutes}`;
+        } catch (error) {
+            console.error('Error formatting Lark time:', error);
+            return 'Format Error';
+        }
+    }
+
+
     async getAllWorkHistory() {
         const cacheKey = 'work_history_all';
         let history = CacheService.get(cacheKey);
