@@ -21,24 +21,28 @@ class EmployeeService extends BaseService {
         let employees = CacheService.get(cacheKey);
 
         if (employees) {
-            console.log('✅ SERVICE: Sử dụng dữ liệu nhân viên từ cache.');
+            console.log(`✅ EMPLOYEE: Loaded ${employees.length} employees from cache.`);
             return employees;
         }
 
         try {
-            console.log('📡 SERVICE: Đang lấy dữ liệu nhân viên từ Lark API...');
-            const response = await LarkClient.get(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`);
+            console.log('📡 EMPLOYEE: Fetching all employees from Lark API...');
+            
+            // ✅ Sử dụng getAllRecords để lấy toàn bộ dữ liệu, không bị giới hạn trang
+            const response = await LarkClient.getAllRecords(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
+            );
             
             employees = this.transformEmployeeData(response.data?.items || []);
-            console.log(`✅ SERVICE: Lấy và chuyển đổi thành công ${employees.length} nhân viên.`);
+            console.log(`✅ EMPLOYEE: Transformed ${employees.length} total employees.`);
             
             CacheService.set(cacheKey, employees, 300000); // Cache trong 5 phút
+            console.log(`✅ EMPLOYEE: Cached ${employees.length} employees.`);
             
             return employees;
         } catch (error) {
-            console.error('❌ SERVICE: Lỗi khi lấy dữ liệu nhân viên từ Lark:', error.message);
-            console.log('🔄 SERVICE: Sử dụng dữ liệu mẫu (mock data) làm phương án dự phòng.');
-            return this.getMockEmployees(); // Trả về mock data nếu có lỗi
+            console.error('❌ EMPLOYEE: Error fetching employees from Lark:', error.message);
+            throw error;
         }
     }
 
@@ -117,9 +121,26 @@ class EmployeeService extends BaseService {
     }
 
     async checkEmployeeIdExists(employeeId) {
-        const employees = await this.getAllEmployees();
-        return employees.some(emp => emp.employeeId === employeeId);
+        try {
+            console.log(`🔍 EMPLOYEE: Checking for duplicate ID: ${employeeId}`);
+            
+            // ✅ Sử dụng getAllRecords để đảm bảo kiểm tra trên toàn bộ nhân viên
+            const response = await LarkClient.getAllRecords(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
+            );
+            const allEmployees = this.transformEmployeeData(response.data?.items || []);
+            
+            const exists = allEmployees.some(emp => emp.employeeId === employeeId);
+            console.log(`✅ EMPLOYEE: Duplicate check result: ${exists ? 'EXISTS' : 'NOT_EXISTS'}`);
+            
+            return exists;
+        } catch (error) {
+            console.error('❌ EMPLOYEE: Error checking for duplicate employee ID:', error);
+            // An toàn nhất là trả về false để không chặn việc thêm nhân viên nếu API lỗi
+            return false;
+        }
     }
+
 
     async searchEmployees(query) {
         const employees = await this.getAllEmployees();
@@ -185,40 +206,40 @@ class EmployeeService extends BaseService {
         };
     }
 
-    getMockEmployees() {
-        return [
-            {
-                id: 'emp_001',
-                employeeId: 'Nguyễn Văn A - 0123456789',
-                fullName: 'Nguyễn Văn A',
-                phoneNumber: '0123456789',
-                gender: 'Nam',
-                position: 'Nhân viên bán hàng',
-                hourlyRate: 50000,
-                bankAccount: '123456789',
-                bankName: 'Vietcombank',
-                recruitmentLink: '20250620014',
-                status: 'active',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            },
-            {
-                id: 'emp_002',
-                employeeId: 'Trần Thị B - 0987654321',
-                fullName: 'Trần Thị B',
-                phoneNumber: '0987654321',
-                gender: 'Nữ',
-                position: 'Thu ngân',
-                hourlyRate: 45000,
-                bankAccount: '987654321',
-                bankName: 'Techcombank',
-                recruitmentLink: '20250620017',
-                status: 'active',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            }
-        ];
-    }
+    // getMockEmployees() {
+    //     return [
+    //         {
+    //             id: 'emp_001',
+    //             employeeId: 'Nguyễn Văn A - 0123456789',
+    //             fullName: 'Nguyễn Văn A',
+    //             phoneNumber: '0123456789',
+    //             gender: 'Nam',
+    //             position: 'Nhân viên bán hàng',
+    //             hourlyRate: 50000,
+    //             bankAccount: '123456789',
+    //             bankName: 'Vietcombank',
+    //             recruitmentLink: '20250620014',
+    //             status: 'active',
+    //             createdAt: new Date().toISOString(),
+    //             updatedAt: new Date().toISOString()
+    //         },
+    //         {
+    //             id: 'emp_002',
+    //             employeeId: 'Trần Thị B - 0987654321',
+    //             fullName: 'Trần Thị B',
+    //             phoneNumber: '0987654321',
+    //             gender: 'Nữ',
+    //             position: 'Thu ngân',
+    //             hourlyRate: 45000,
+    //             bankAccount: '987654321',
+    //             bankName: 'Techcombank',
+    //             recruitmentLink: '20250620017',
+    //             status: 'active',
+    //             createdAt: new Date().toISOString(),
+    //             updatedAt: new Date().toISOString()
+    //         }
+    //     ];
+    // }
 }
 
 export default EmployeeService;

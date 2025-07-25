@@ -33,21 +33,25 @@ class EmployeeController {
         try {
             const { fullName, phoneNumber, gender, hourlyRate, bankAccount, bankName, workHistoryData } = req.body;
 
-            // Check for duplicate request numbers (phần này vẫn nên giữ lại vì nó là logic nghiệp vụ đặc thù)
-            const requestNos = workHistoryData.map(item => item.requestNo);
-            const uniqueRequestNos = [...new Set(requestNos)];
-            if (requestNos.length !== uniqueRequestNos.length) {
-                return res.status(400).json(formatResponse(
-                    false, 
-                    'Không được trùng lặp Request No.', 
-                    null, 
-                    'DUPLICATE_REQUEST_NO'
-                ));
-            }
+            // // Check for duplicate request numbers
+            // const requestNos = workHistoryData.map(item => item.requestNo);
+            // const uniqueRequestNos = [...new Set(requestNos)];
+            // if (requestNos.length !== uniqueRequestNos.length) {
+            //     return res.status(400).json(formatResponse(
+            //         false, 
+            //         'Không được trùng lặp Request No.', 
+            //         null, 
+            //         'DUPLICATE_REQUEST_NO'
+            //     ));
+            // }
 
-            // Generate employee ID and check for duplicates (đã chuyển vào service)
+            // Generate employee ID and check for duplicates
+            //const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+            //const isDuplicate = await larkServiceManager.checkEmployeeIdExists(employeeId);
+
             const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
-            const isDuplicate = await larkServiceManager.checkEmployeeIdExists(employeeId);
+            const employeeService = larkServiceManager.getService('employee');
+            const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
             if (isDuplicate) {
                 return res.status(409).json(formatResponse(
                     false, 
@@ -94,6 +98,9 @@ class EmployeeController {
                 workHistoryResults.push(workHistory);
             }
 
+            // ✅ SỬA: Clear cache sau khi thêm thành công để frontend có dữ liệu mới nhất
+            console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
+            
             res.json(formatResponse(true, 'Thêm nhân viên thành công', {
                 employee,
                 workHistory: workHistoryResults
@@ -136,6 +143,9 @@ class EmployeeController {
             
             const employee = await larkServiceManager.updateEmployee(id, updatedData);
             
+            // ✅ SỬA: Clear cache sau khi cập nhật thành công
+            console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
+            
             res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
             
         } catch (error) {
@@ -157,6 +167,10 @@ class EmployeeController {
         try {
             const { id } = req.params;
             await larkServiceManager.deleteEmployee(id);
+            
+            // ✅ SỬA: Clear cache sau khi xóa thành công
+            console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
+            
             res.json(formatResponse(true, 'Xóa nhân viên thành công'));
         } catch (error) {
             console.error('❌ Controller: deleteEmployee failed:', error);
@@ -235,6 +249,17 @@ class EmployeeController {
             
         } catch (error) {
             console.error('❌ Controller: addWorkHistory failed:', error);
+
+            if (error.message.includes('bị trùng với lịch sử làm việc cũ')) {
+                // Trả về lỗi 409 Conflict thay vì 500
+                return res.status(409).json(formatResponse(
+                    false,
+                    error.message, // Sử dụng thông báo lỗi đã được tạo ở service
+                    null,
+                    'DATE_OVERLAP_CONFLICT'
+                ));
+            }
+
             res.status(500).json(formatResponse(
                 false, 
                 `Lỗi khi thêm work history: ${error.message}`, 
@@ -255,5 +280,3 @@ export const deleteEmployee = employeeController.deleteEmployee.bind(employeeCon
 export const searchEmployees = employeeController.searchEmployees.bind(employeeController);
 export const getEmployeeWorkHistory = employeeController.getEmployeeWorkHistory.bind(employeeController);
 export const addWorkHistory = employeeController.addWorkHistory.bind(employeeController);
-
-// DÒNG BỊ LỖI ĐÃ ĐƯỢC XÓA BỎ

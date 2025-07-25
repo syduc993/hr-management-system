@@ -21,11 +21,6 @@ class LarkClient {
     async getTenantAccessToken() {
         console.log('🔑 Getting tenant access token...');
         
-        // Debug environment variables khi thực sự sử dụng
-        console.log('🔍 DEBUG Lark Credentials:');
-        console.log('App ID:', this.appId ? `${this.appId.substring(0, 8)}...` : 'Missing');
-        console.log('App Secret:', this.appSecret ? `${this.appSecret.substring(0, 8)}...` : 'Missing');
-        
         if (!this.appId || !this.appSecret) {
             throw new Error('Lark credentials not configured properly');
         }
@@ -111,6 +106,59 @@ class LarkClient {
     async get(endpoint, params = {}) {
         console.log('📥 GET request:', endpoint, params);
         return this.request(endpoint, { method: 'GET', params });
+    }
+
+    // ✅ ================================================================
+    // ✅ PHƯƠNG THỨC MỚI ĐỂ LẤY TOÀN BỘ DỮ LIỆU (CÓ PAGINATION)
+    // ✅ ================================================================
+    async getAllRecords(endpoint, pageSize = 100) {
+        console.log(`📚 Getting ALL records from: ${endpoint}`);
+        
+        let allRecords = [];
+        let hasMore = true;
+        let pageToken = null;
+        let pageCount = 0;
+        
+        while (hasMore) {
+            pageCount++;
+            console.log(`📄 Fetching page ${pageCount}...`);
+            
+            const params = {
+                page_size: pageSize
+            };
+            
+            if (pageToken) {
+                params.page_token = pageToken;
+            }
+            
+            // Sử dụng method 'get' đã có sẵn của class
+            const response = await this.get(endpoint, params);
+            
+            if (response.data?.items) {
+                allRecords = [...allRecords, ...response.data.items];
+                console.log(`✅ Page ${pageCount}: ${response.data.items.length} records (Total: ${allRecords.length})`);
+            }
+            
+            // Kiểm tra có trang tiếp theo không
+            hasMore = response.data?.has_more || false;
+            pageToken = response.data?.page_token || null;
+            
+            // Safety break để tránh infinite loop
+            if (pageCount > 50) { // Giới hạn 50 trang (tối đa 5000 records)
+                console.warn('⚠️ Reached maximum page limit (50 pages)');
+                break;
+            }
+        }
+        
+        console.log(`🎉 COMPLETED: Retrieved ${allRecords.length} total records in ${pageCount} pages`);
+        
+        // Trả về dữ liệu theo cấu trúc chuẩn {data: {items, total}}
+        return {
+            data: {
+                items: allRecords,
+                total: allRecords.length
+            }
+        };
     }
 
     async post(endpoint, data = {}) {

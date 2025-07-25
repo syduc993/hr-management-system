@@ -9,7 +9,8 @@ export const validateLarkConfig = () => {
         'LARK_RECRUITMENT_TABLE_ID',
         'LARK_STORE_TABLE_ID',
         'LARK_POSITION_TABLE_ID',
-        'LARK_WORK_HISTORY_TABLE_ID'
+        'LARK_WORK_HISTORY_TABLE_ID',
+        'LARK_HOURS_SUMMARY_TABLE_ID'
     ];
 
     const missing = requiredVars.filter(key => !process.env[key]);
@@ -31,6 +32,7 @@ export const larkConfig = {
         recruitment: process.env.LARK_RECRUITMENT_TABLE_ID,
         store: process.env.LARK_STORE_TABLE_ID,
         position: process.env.LARK_POSITION_TABLE_ID,
-        workHistory: process.env.LARK_WORK_HISTORY_TABLE_ID
+        workHistory: process.env.LARK_WORK_HISTORY_TABLE_ID,
+        hoursSummary: process.env.LARK_HOURS_SUMMARY_TABLE_ID
     }
 };

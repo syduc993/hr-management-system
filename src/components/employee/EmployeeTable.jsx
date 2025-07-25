@@ -7,39 +7,20 @@ const EmployeeTable = ({
   onAddWorkHistory, 
   onViewWorkHistory 
 }) => {
-  // Kiểm tra và đảm bảo employees luôn là array
-  const employeeList = React.useMemo(() => {
-    if (!employees) {
-      return [];
-    }
-    
-    // Nếu employees là object có data property (từ API response)
-    if (employees.data && Array.isArray(employees.data)) {
-      return employees.data;
-    }
-    
-    // Nếu employees đã là array
-    if (Array.isArray(employees)) {
-      return employees;
-    }
-    
-    // Fallback: trả về empty array
-    console.warn('EmployeeTable: employees prop is not an array:', typeof employees, employees);
-    return [];
-  }, [employees]);
 
-  if (!employeeList || employeeList.length === 0) {
+  // ✅ Giữ lại phần hiển thị thông báo thân thiện khi không có dữ liệu từ code của bạn.
+  if (!employees || employees.length === 0) {
     return (
-      <div className="text-center py-4">
-        <i className="fas fa-users fa-3x text-muted mb-3"></i>
-        <p className="text-muted">Không có nhân viên nào</p>
+      <div className="text-center py-5">
+        <p className="text-muted">Không có dữ liệu nhân viên để hiển thị.</p>
+        <p className="text-muted small">Hãy thử thay đổi bộ lọc hoặc thêm nhân viên mới.</p>
       </div>
     );
   }
 
   return (
     <div className="table-responsive">
-      <table className="table table-striped table-hover">
+      <table className="table table-hover table-striped align-middle">
         <thead className="table-dark">
           <tr>
             <th>Mã NV</th>
@@ -50,100 +31,82 @@ const EmployeeTable = ({
             <th>Tài khoản</th>
             <th>Ngân hàng</th>
             <th>Trạng thái</th>
-            <th>Thao tác</th>
+            <th className="text-center" style={{ minWidth: '160px' }}>Thao tác</th>
           </tr>
         </thead>
-        <tbody id="employeeTableBody">
-          {employeeList.map((employee, index) => {
-            // Đảm bảo mỗi employee có đủ thuộc tính
-            const safeEmployee = {
-              id: employee?.id || `emp_${index}`,
-              employeeId: employee?.employeeId || 'N/A',
-              fullName: employee?.fullName || 'N/A',
-              phoneNumber: employee?.phoneNumber || 'N/A',
-              gender: employee?.gender || 'N/A',
-              hourlyRate: employee?.hourlyRate || 0,
-              bankAccount: employee?.bankAccount || 'N/A',
-              bankName: employee?.bankName || 'N/A',
-              status: employee?.status || 'inactive'
-            };
-
-            return (
-              <tr key={safeEmployee.id}>
-                <td>{safeEmployee.employeeId}</td>
-                <td>{safeEmployee.fullName}</td>
-                <td>{safeEmployee.phoneNumber}</td>
-                <td>{safeEmployee.gender}</td>
-                <td>
-                  {safeEmployee.hourlyRate && safeEmployee.hourlyRate > 0
-                    ? safeEmployee.hourlyRate.toLocaleString('vi-VN') + ' VNĐ'
-                    : 'N/A'
-                  }
-                </td>
-                <td>{safeEmployee.bankAccount}</td>
-                <td>{safeEmployee.bankName}</td>
-                <td>
-                  <span className={`badge ${
-                    safeEmployee.status === 'active' 
-                      ? 'bg-success' 
-                      : 'bg-secondary'
-                  }`}>
-                    {safeEmployee.status === 'active' 
-                      ? 'Hoạt động' 
-                      : 'Ngưng hoạt động'
-                    }
-                  </span>
-                </td>
-                <td>
-                  <div className="btn-group" role="group">
-                    {onAddWorkHistory && (
-                      <button
-                        className="btn btn-sm btn-success"
-                        onClick={() => onAddWorkHistory(safeEmployee.employeeId, safeEmployee.fullName)}
-                        title="Thêm work history"
-                      >
-                        <i className="fas fa-plus"></i>
-                      </button>
-                    )}
-                    
-                    {onViewWorkHistory && (
-                      <button
-                        className="btn btn-sm btn-info"
-                        onClick={() => onViewWorkHistory(safeEmployee.employeeId)}
-                        title="Xem lịch sử"
-                      >
-                        <i className="fas fa-history"></i>
-                      </button>
-                    )}
-                    
-                    {onEdit && (
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => onEdit(safeEmployee.id)}
-                        title="Chỉnh sửa"
-                      >
-                        <i className="fas fa-edit"></i>
-                      </button>
-                    )}
-                    
-                    {onDelete && (
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => {
-                          if (window.confirm(`Bạn có chắc chắn muốn xóa nhân viên "${safeEmployee.fullName}"?`)) {
-                            onDelete(safeEmployee.id);
-                          }
-                        }}
-                        title="Xóa"
-                      >
-                        <i className="fas fa-trash"></i>
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
+        <tbody>
+          {/* 
+            ✅ Không cần 'safeEmployee' nữa. 
+            Component cha đảm bảo dữ liệu truyền vào đã sạch.
+          */}
+          {employees.map((employee) => (
+            <tr key={employee.id}>
+              <td>{employee.employeeId || 'N/A'}</td>
+              <td>{employee.fullName || 'N/A'}</td>
+              <td>{employee.phoneNumber || 'N/A'}</td>
+              <td>{employee.gender || 'N/A'}</td>
+              <td>
+                {/* ✅ Giữ lại định dạng tiền tệ, đây là logic hiển thị hợp lệ. */}
+                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(employee.hourlyRate || 0)}
+              </td>
+              <td>{employee.bankAccount || 'N/A'}</td>
+              <td>{employee.bankName || 'N/A'}</td>
+              <td>
+                <span className={`badge ${employee.status === 'active' ? 'bg-success' : 'bg-secondary'}`}>
+                  {employee.status === 'active' ? 'Hoạt động' : 'Ngưng'}
+                </span>
+              </td>
+              <td className="text-center">
+                <div className="btn-group" role="group">
+                  {/* Nút Thêm Work History */}
+                  {onAddWorkHistory && (
+                    <button
+                      className="btn btn-sm btn-success"
+                      title="Thêm Lịch sử công việc"
+                      onClick={() => onAddWorkHistory(employee)} // ✅ Truyền cả object 'employee'
+                    >
+                      <i className="fas fa-plus-circle"></i>
+                    </button>
+                  )}
+                  {/* Nút Xem Work History */}
+                  {onViewWorkHistory && (
+                    <button
+                      className="btn btn-sm btn-info"
+                      title="Xem Lịch sử công việc"
+                      onClick={() => onViewWorkHistory(employee)} // ✅ Truyền cả object 'employee'
+                    >
+                      <i className="fas fa-history"></i>
+                    </button>
+                  )}
+                  {/* Nút Sửa */}
+                  {onEdit && (
+                     <button
+                      className="btn btn-sm btn-primary"
+                      title="Sửa thông tin"
+                      onClick={() => onEdit(employee)} // ✅ Truyền cả object 'employee'
+                    >
+                      <i className="fas fa-pencil-alt"></i>
+                    </button>
+                  )}
+                  {/* Nút Xóa */}
+                  {onDelete && (
+                    <button
+                      className="btn btn-sm btn-danger"
+                      title="Xóa nhân viên"
+                      // ✅ Giữ lại logic confirm ở đây là hợp lý cho hành động nguy hiểm.
+                      onClick={() => {
+                        if (window.confirm(`Bạn có chắc muốn xóa nhân viên "${employee.fullName}"?`)) {
+                          onDelete(employee.id);
+                        }
+                      }}
+                    >
+                      <i className="fas fa-trash"></i>
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

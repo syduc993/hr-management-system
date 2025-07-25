@@ -8,5 +8,3 @@ export const useNotification = () => {
   }
   return context;
 };
-
-export default useNotification;

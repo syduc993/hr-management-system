@@ -32,6 +32,7 @@ const PORT = process.env.PORT || 8080;
 // Middleware
 app.use(cors({
     origin: 'http://localhost:3000',
+    //origin: ['http://localhost:3000', 'http://192.168.1.88:3000'],
     credentials: true
 }));
 
@@ -75,7 +76,7 @@ app.get('/', (req, res) => {
 });
 
 // Start server with proper initialization
-app.listen(PORT, async () => {
+app.listen(PORT,'::', async () => {
     console.log(`Server running on http://localhost:${PORT}`);
     
     try {

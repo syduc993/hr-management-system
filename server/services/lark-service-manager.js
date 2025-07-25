@@ -87,10 +87,10 @@ class LarkServiceManager {
         return await this.services.employee.deleteEmployee(id);
     }
 
-    async checkEmployeeIdExists(employeeId) {
-        await this.ensureInitialized();
-        return await this.services.employee.checkEmployeeIdExists(employeeId);
-    }
+    //async checkEmployeeIdExists(employeeId) {
+    //    await this.ensureInitialized();
+    //    return await this.services.employee.checkEmployeeIdExists(employeeId);
+    //}
 
     async searchEmployees(query) {
         await this.ensureInitialized();
@@ -103,9 +103,22 @@ class LarkServiceManager {
         return await this.services.workHistory.getWorkHistoryByEmployee(employeeId);
     }
 
+    // async addWorkHistory(workHistoryData) {
+    //     await this.ensureInitialized();
+    //     return await this.services.workHistory.addWorkHistory(workHistoryData);
+    // }
+
     async addWorkHistory(workHistoryData) {
         await this.ensureInitialized();
-        return await this.services.workHistory.addWorkHistory(workHistoryData);
+        // Lấy instance của recruitment service
+        const recruitmentService = this.getService('recruitment');
+        // Truyền nó vào hàm của workHistory service
+        return await this.services.workHistory.addWorkHistory(workHistoryData, recruitmentService);
+    }
+
+    async checkWorkHistoryExists(employeeId, requestNo) {
+        await this.ensureInitialized();
+        return await this.services.workHistory.checkWorkHistoryExists(employeeId, requestNo);
     }
 
     async checkWorkHistoryExists(employeeId, requestNo) {

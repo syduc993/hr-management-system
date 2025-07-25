@@ -1,9 +1,9 @@
-// src/components/employee/WorkHistoryModal.jsx  
 import React, { useState, useEffect } from 'react';
-import { getEmployeeWorkHistory } from '../../services/employee.js';
+// ✅ SỬA 1: Import đúng tên hàm là 'getWorkHistory'
+import { getWorkHistory } from '../../services/employee.js';
 import { useNotification } from '../../hooks/useNotification';
-import Modal from '../common/Modal';
-import Loading from '../common/Loading';
+import Modal from '../common/Modal.jsx';
+import Loading from '../common/Loading.jsx';
 
 const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHistory }) => {
   const [workHistoryData, setWorkHistoryData] = useState([]);
@@ -11,9 +11,12 @@ const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHisto
   const { showNotification } = useNotification();
 
   useEffect(() => {
+    // Nếu modal mở và có employeeId, và không có dữ liệu lịch sử được truyền sẵn,
+    // thì mới gọi API để lấy dữ liệu.
     if (isOpen && employeeId && !workHistory) {
       fetchWorkHistory();
     } else if (workHistory) {
+      // Nếu có dữ liệu được truyền sẵn, sử dụng nó luôn.
       setWorkHistoryData(workHistory);
     }
   }, [isOpen, employeeId, workHistory]);
@@ -21,15 +24,12 @@ const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHisto
   const fetchWorkHistory = async () => {
     setLoading(true);
     try {
-      const response = await getEmployeeWorkHistory(employeeId);
-      
-      if (response.success) {
-        setWorkHistoryData(response.data || []);
-      } else {
-        showNotification(response.message || 'Lỗi khi tải work history', 'error');
-      }
+      // ✅ SỬA 2: Gọi đúng hàm đã import
+      const response = await getWorkHistory(employeeId);
+      // Hàm getWorkHistory đã được thiết kế để luôn trả về một mảng
+      setWorkHistoryData(response || []);
     } catch (error) {
-      console.error('❌ Error fetching work history:', error);
+      console.error('Lỗi khi tải lịch sử công việc:', error);
       showNotification(error.message || 'Lỗi kết nối đến server', 'error');
     } finally {
       setLoading(false);
@@ -46,29 +46,29 @@ const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHisto
       size="lg"
     >
       {loading ? (
-        <Loading />
+        <Loading text="Đang tải lịch sử..." />
       ) : (
         <div>
           {workHistoryData.length === 0 ? (
             <div className="text-center py-4">
               <i className="fas fa-history fa-3x text-muted mb-3"></i>
-              <p className="text-muted">Không có lịch sử làm việc</p>
+              <p className="text-muted">Nhân viên này chưa có lịch sử làm việc.</p>
             </div>
           ) : (
             <div className="table-responsive">
-              <table className="table table-striped">
+              <table className="table table-striped table-hover">
                 <thead className="table-dark">
                   <tr>
                     <th>Request No.</th>
                     <th>Mã nhân viên</th>
-                    <th>Thời gian</th>
+                    <th>Thời gian tạo</th>
                   </tr>
                 </thead>
                 <tbody>
                   {workHistoryData.map((item, index) => (
                     <tr key={item.id || index}>
                       <td>
-                        <span className="badge bg-primary">{item.requestNo}</span>
+                        <span className="badge bg-primary fs-6">{item.requestNo}</span>
                       </td>
                       <td>{item.employeeId}</td>
                       <td>
@@ -83,7 +83,7 @@ const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHisto
             </div>
           )}
           
-          <div className="d-flex justify-content-end mt-3">
+          <div className="modal-footer border-0 px-0 pb-0 mt-3">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Đóng
             </button>
