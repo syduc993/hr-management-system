@@ -26,9 +26,9 @@ const EmployeeManagementPage = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
 
-  // ✅ THÊM: State cho các modal Work History
+  // ✅ CẬP NHẬT: State cho các modal Work History
   const [isAddWorkHistoryModalOpen, setAddWorkHistoryModalOpen] = useState(false);
-  const [isViewWorkHistoryModalOpen, setViewWorkHistoryModalOpen] = useState(false);
+  const [isManageWorkHistoryModalOpen, setManageWorkHistoryModalOpen] = useState(false); // ✅ THAY ĐỔI: Đổi tên từ isViewWorkHistoryModalOpen
   const [employeeForHistory, setEmployeeForHistory] = useState(null);
   
   // State cho tìm kiếm và bộ lọc
@@ -76,20 +76,28 @@ const EmployeeManagementPage = () => {
     return await addEmployee(formData);
   };
 
-  // ✅ THÊM: Các hàm xử lý cho Work History
+  // ✅ CẬP NHẬT: Các hàm xử lý cho Work History
   const handleOpenAddWorkHistoryModal = (employee) => {
     setEmployeeForHistory(employee);
     setAddWorkHistoryModalOpen(true);
   };
 
-  const handleOpenViewWorkHistoryModal = (employee) => {
+  // ✅ THAY ĐỔI: Đổi tên function
+  const handleOpenManageWorkHistoryModal = (employee) => {
     setEmployeeForHistory(employee);
-    setViewWorkHistoryModalOpen(true);
+    setManageWorkHistoryModalOpen(true); // ✅ THAY ĐỔI: Sử dụng state mới
   };
   
+
+  // ✅ THÊM: Hàm refresh data sau khi sửa work history
+  const handleWorkHistoryUpdated = async () => {
+    console.log('🔄 Work history updated, refreshing employee data...');
+    await refreshEmployees();
+  };
+
   const handleCloseModals = () => {
     setAddWorkHistoryModalOpen(false);
-    setViewWorkHistoryModalOpen(false);
+    setManageWorkHistoryModalOpen(false); // ✅ THAY ĐỔI: Cập nhật state mới
     setEmployeeForHistory(null);
   };
 
@@ -98,6 +106,13 @@ const EmployeeManagementPage = () => {
     refreshEmployees(); // Tải lại danh sách để cập nhật (nếu cần)
     handleCloseModals();
   };
+
+  const handleWorkHistoryDataChanged = () => {
+    console.log('Work history đã thay đổi, đang refresh...');
+    // Gọi lại API để fetch data nhân viên mới
+    refreshEmployees(); // Hoặc tên hàm fetch data của bạn
+  };
+
 
   return (
     <div className="container-fluid mt-4">
@@ -146,9 +161,9 @@ const EmployeeManagementPage = () => {
                   employees={filteredEmployees}
                   onEdit={handleOpenEditModal}
                   onDelete={handleDeleteEmployee}
-                  // ✅ THÊM LẠI: Truyền các hàm xử lý Work History
+                  // ✅ CẬP NHẬT: Truyền các hàm xử lý Work History với tên mới
                   onAddWorkHistory={handleOpenAddWorkHistoryModal}
-                  onViewWorkHistory={handleOpenViewWorkHistoryModal}
+                  onManageWorkHistory={handleOpenManageWorkHistoryModal} // ✅ THAY ĐỔI: Đổi tên prop
                 />
               )}
             </div>
@@ -166,7 +181,7 @@ const EmployeeManagementPage = () => {
         />
       )}
 
-      {/* ✅ THÊM: Render các modal cho Work History */}
+      {/* ✅ CẬP NHẬT: Render các modal cho Work History */}
       {isAddWorkHistoryModalOpen && employeeForHistory && (
         <AddWorkHistoryModal
           isOpen={isAddWorkHistoryModalOpen}
@@ -176,11 +191,15 @@ const EmployeeManagementPage = () => {
         />
       )}
       
-      {isViewWorkHistoryModalOpen && employeeForHistory && (
+      {/* ✅ THAY ĐỔI: Sử dụng WorkHistoryModal CRUD với state và props mới */}
+      {isManageWorkHistoryModalOpen && employeeForHistory && (
         <WorkHistoryModal
-          isOpen={isViewWorkHistoryModalOpen}
+          isOpen={isManageWorkHistoryModalOpen}
           onClose={handleCloseModals}
+          onDataUpdated={handleWorkHistoryUpdated}
           employeeId={employeeForHistory.employeeId}
+          employeeName={employeeForHistory.fullName}
+          onDataChanged={handleWorkHistoryDataChanged}
         />
       )}
     </div>

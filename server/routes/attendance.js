@@ -1,11 +1,11 @@
 // server/routes/attendance.js
 import express from 'express';
 import { 
-    getAttendanceLogs, 
-    addAttendanceLog, 
+    getAttendanceLogs,
+    addAttendanceLog,
     getEmployeeHours,
-    getAttendanceStats,           // ✅ THÊM MỚI
-    getEmployeeDetailedHours      // ✅ THÊM MỚI
+    getAttendanceStats,
+    getEmployeeDetailedHours
 } from '../controllers/attendanceController.js';
 import { authenticateUser } from '../middleware/auth.js';
 

@@ -1,4 +1,4 @@
-// D:\Atino\extension\hr-management-system\src\services\employee.js
+// src/services/employee.js
 
 import { ApiClient } from './api.js';
 
@@ -110,6 +110,11 @@ export const updateEmployee = async (id, employeeData) => {
         console.log(`📡 SERVICE (FE): Gọi API cập nhật nhân viên ID: ${id}...`, employeeData);
         const response = await ApiClient.put(`/api/employees/${id}`, employeeData);
         
+        console.log('🔍 DEBUG: PUT Response Status:', response.status);
+        console.log('🔍 DEBUG: PUT Response Headers:', response.headers);
+        console.log('🔍 DEBUG: PUT Response Data:', response.data);
+        console.log('🔍 DEBUG: PUT Response Full:', response);
+
         console.log('🔍 UPDATE EMPLOYEE SERVICE: Response:', response);
         
         // Handle different response structures
@@ -217,5 +222,47 @@ export const addWorkHistory = async (workHistoryData) => {
         };
     } catch (error) {
         handleError(error, 'thêm lịch sử công việc');
+    }
+};
+
+// ✅ THÊM MỚI: Update work history
+export const updateWorkHistory = async (id, workHistoryData) => {
+    try {
+        console.log(`📡 SERVICE (FE): Gọi API cập nhật lịch sử công việc ID: ${id}...`, workHistoryData);
+        const response = await ApiClient.put(`/api/employees/work-history/${id}`, workHistoryData);
+        
+        console.log('🔍 UPDATE WORK HISTORY SERVICE: Response:', response);
+        
+        // Handle different response structures
+        if (typeof response.success !== 'undefined') {
+            return response;
+        }
+        
+        return {
+            success: true,
+            data: response,
+            message: 'Cập nhật lịch sử công việc thành công'
+        };
+        
+    } catch (error) {
+        handleError(error, 'cập nhật lịch sử công việc');
+    }
+};
+
+// ✅ THÊM MỚI: Delete work history
+export const deleteWorkHistory = async (id) => {
+    try {
+        console.log(`📡 SERVICE (FE): Gọi API xóa lịch sử công việc ID: ${id}...`);
+        const response = await ApiClient.delete(`/api/employees/work-history/${id}`);
+        
+        console.log('🔍 DELETE WORK HISTORY SERVICE: Response:', response);
+        
+        return {
+            success: true,
+            message: 'Xóa lịch sử công việc thành công'
+        };
+        
+    } catch (error) {
+        handleError(error, 'xóa lịch sử công việc');
     }
 };

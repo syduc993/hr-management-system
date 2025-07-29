@@ -353,7 +353,6 @@ class AttendanceService extends BaseService {
 
     // ✅ SỬA: Sử dụng trực tiếp timestamp từ convertUnixToDateTime
     transformAttendanceData(larkData) {
-        console.log('🔍 LARK RAW DATA:', JSON.stringify(larkData.slice(0, 2), null, 2));
         
         return larkData.map(record => {
             let employeeId = '';
@@ -370,16 +369,6 @@ class AttendanceService extends BaseService {
             const convertedTimestamp = this.convertUnixToDateTime(record.fields['Thời gian chấm công']);
             const dateObj = new Date(convertedTimestamp);
             
-            console.log('🔍 RECORD FIELDS:', {
-                'Mã nhân viên_raw': record.fields['Mã nhân viên'],
-                'employeeId_extracted': `"${employeeId}"`,
-                'employeeId_type': typeof employeeId,
-                'raw_timestamp': record.fields['Thời gian chấm công'],
-                'converted_timestamp': convertedTimestamp,
-                'extracted_date': dateObj.toISOString().split('T')[0],
-                'position': record.fields['Vị trí'],
-                'type': record.fields['Phân loại']
-            });
             
             return {
                 id: record.record_id,
@@ -387,8 +376,8 @@ class AttendanceService extends BaseService {
                 type: record.fields['Phân loại'] || '',
                 position: record.fields['Vị trí'] || '',
                 timestamp: convertedTimestamp,
-                date: dateObj.toISOString().split('T')[0],  // ✅ SỬA: Extract từ converted timestamp
-                time: dateObj.toTimeString().slice(0, 5),   // ✅ SỬA: Extract từ converted timestamp  
+                date: dateObj.toISOString().split('T')[0],
+                time: dateObj.toTimeString().slice(0, 5),
                 notes: record.fields['Ghi chú'] || '',
                 createdAt: record.fields['Created At'] || new Date().toISOString()
             };

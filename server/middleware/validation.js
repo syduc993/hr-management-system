@@ -6,20 +6,34 @@ import { MasterDataValidator } from '../services/master-data/index.js';
 class ValidationMiddleware {
     // Middleware để validate dữ liệu nhân viên mới
     static validateAddEmployee(req, res, next) {
-        // Kiểm tra dữ liệu nhân viên
-        const employeeErrors = EmployeeValidator.validateEmployeeData(req.body);
-        if (employeeErrors.length > 0) {
-            return res.status(400).json(formatResponse(false, employeeErrors.join(', '), null, 'VALIDATION_ERROR'));
-        }
+    // ✅ Tạo employeeData giống logic trong controller
+    const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
+    const hourlyRate = (workHistoryData && workHistoryData[0]?.hourlyRate) || 0;
+    
+    const employeeDataForValidation = {
+        fullName,
+        phoneNumber, 
+        gender,
+        hourlyRate: parseFloat(hourlyRate),
+        bankAccount,
+        bankName
+    };
 
-        // Kiểm tra dữ liệu work history
-        const workHistoryErrors = EmployeeValidator.validateWorkHistoryData(req.body.workHistoryData || []);
-        if (workHistoryErrors.length > 0) {
-            return res.status(400).json(formatResponse(false, workHistoryErrors.join(', '), null, 'VALIDATION_ERROR'));
-        }
-        
-        next();
+    // Validate employee data với data đã xử lý
+    const employeeErrors = EmployeeValidator.validateEmployeeData(employeeDataForValidation);
+    if (employeeErrors.length > 0) {
+        return res.status(400).json(formatResponse(false, employeeErrors.join(', '), null, 'VALIDATION_ERROR'));
     }
+
+    // Validate work history
+    const workHistoryErrors = EmployeeValidator.validateWorkHistoryData(req.body.workHistoryData || []);
+    if (workHistoryErrors.length > 0) {
+        return res.status(400).json(formatResponse(false, workHistoryErrors.join(', '), null, 'VALIDATION_ERROR'));
+    }
+    
+    next();
+    }
+
 
     // Middleware để validate dữ liệu khi cập nhật nhân viên (có thể khác với khi thêm mới)
     static validateUpdateEmployee(req, res, next) {

@@ -5,7 +5,7 @@ const EmployeeTable = ({
   onEdit, 
   onDelete, 
   onAddWorkHistory, 
-  onViewWorkHistory 
+  onManageWorkHistory
 }) => {
 
   // ✅ Giữ lại phần hiển thị thông báo thân thiện khi không có dữ liệu từ code của bạn.
@@ -27,28 +27,19 @@ const EmployeeTable = ({
             <th>Họ tên</th>
             <th>Số ĐT</th>
             <th>Giới tính</th>
-            <th>Lương/giờ</th>
             <th>Tài khoản</th>
             <th>Ngân hàng</th>
             <th>Trạng thái</th>
-            <th className="text-center" style={{ minWidth: '160px' }}>Thao tác</th>
+            <th className="text-center" style={{ minWidth: '180px' }}>Thao tác</th> {/* ✅ TĂNG chiều rộng cho thêm nút */}
           </tr>
         </thead>
         <tbody>
-          {/* 
-            ✅ Không cần 'safeEmployee' nữa. 
-            Component cha đảm bảo dữ liệu truyền vào đã sạch.
-          */}
           {employees.map((employee) => (
             <tr key={employee.id}>
               <td>{employee.employeeId || 'N/A'}</td>
               <td>{employee.fullName || 'N/A'}</td>
               <td>{employee.phoneNumber || 'N/A'}</td>
               <td>{employee.gender || 'N/A'}</td>
-              <td>
-                {/* ✅ Giữ lại định dạng tiền tệ, đây là logic hiển thị hợp lệ. */}
-                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(employee.hourlyRate || 0)}
-              </td>
               <td>{employee.bankAccount || 'N/A'}</td>
               <td>{employee.bankName || 'N/A'}</td>
               <td>
@@ -58,42 +49,44 @@ const EmployeeTable = ({
               </td>
               <td className="text-center">
                 <div className="btn-group" role="group">
-                  {/* Nút Thêm Work History */}
+                  {/* ✅ GIỮ LẠI: Nút Thêm Work History */}
                   {onAddWorkHistory && (
                     <button
                       className="btn btn-sm btn-success"
                       title="Thêm Lịch sử công việc"
-                      onClick={() => onAddWorkHistory(employee)} // ✅ Truyền cả object 'employee'
+                      onClick={() => onAddWorkHistory(employee)}
                     >
                       <i className="fas fa-plus-circle"></i>
                     </button>
                   )}
-                  {/* Nút Xem Work History */}
-                  {onViewWorkHistory && (
+                  
+                  {/* ✅ THAY ĐỔI: Nút Quản lý Work History (thay thế nút Xem) */}
+                  {onManageWorkHistory && (
                     <button
-                      className="btn btn-sm btn-info"
-                      title="Xem Lịch sử công việc"
-                      onClick={() => onViewWorkHistory(employee)} // ✅ Truyền cả object 'employee'
+                      className="btn btn-sm btn-primary" // ✅ THAY ĐỔI: Đổi màu từ info sang primary
+                      title="Quản lý Lịch sử công việc" // ✅ THAY ĐỔI: Đổi tooltip
+                      onClick={() => onManageWorkHistory(employee)}
                     >
-                      <i className="fas fa-history"></i>
+                      <i className="fas fa-cogs"></i> {/* ✅ THAY ĐỔI: Đổi icon từ history sang cogs */}
                     </button>
                   )}
-                  {/* Nút Sửa */}
+                  
+                  {/* ✅ GIỮ LẠI: Nút Sửa */}
                   {onEdit && (
                      <button
-                      className="btn btn-sm btn-primary"
+                      className="btn btn-sm btn-warning" // ✅ THAY ĐỔI: Đổi màu từ primary sang warning để phân biệt
                       title="Sửa thông tin"
-                      onClick={() => onEdit(employee)} // ✅ Truyền cả object 'employee'
+                      onClick={() => onEdit(employee)}
                     >
                       <i className="fas fa-pencil-alt"></i>
                     </button>
                   )}
-                  {/* Nút Xóa */}
+                  
+                  {/* ✅ GIỮ LẠI: Nút Xóa */}
                   {onDelete && (
                     <button
                       className="btn btn-sm btn-danger"
                       title="Xóa nhân viên"
-                      // ✅ Giữ lại logic confirm ở đây là hợp lý cho hành động nguy hiểm.
                       onClick={() => {
                         if (window.confirm(`Bạn có chắc muốn xóa nhân viên "${employee.fullName}"?`)) {
                           onDelete(employee.id);

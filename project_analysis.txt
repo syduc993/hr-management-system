@@ -898,24 +898,7 @@ class EmployeeController {
      */
     async addEmployee(req, res) {
         try {
-            const { fullName, phoneNumber, gender, hourlyRate, bankAccount, bankName, workHistoryData } = req.body;
-
-            // // Check for duplicate request numbers
-            // const requestNos = workHistoryData.map(item => item.requestNo);
-            // const uniqueRequestNos = [...new Set(requestNos)];
-            // if (requestNos.length !== uniqueRequestNos.length) {
-            //     return res.status(400).json(formatResponse(
-            //         false, 
-            //         'Không được trùng lặp Request No.', 
-            //         null, 
-            //         'DUPLICATE_REQUEST_NO'
-            //     ));
-            // }
-
-            // Generate employee ID and check for duplicates
-            //const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
-            //const isDuplicate = await larkServiceManager.checkEmployeeIdExists(employeeId);
-
+            const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
             const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
             const employeeService = larkServiceManager.getService('employee');
             const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
@@ -928,13 +911,11 @@ class EmployeeController {
                 ));
             }
             
-            // Prepare employee data
             const employeeData = {
                 employeeId,
                 fullName,
                 phoneNumber,
                 gender,
-                hourlyRate: parseFloat(hourlyRate),
                 bankAccount,
                 bankName,
                 recruitmentLink: workHistoryData.map(item => item.requestNo).join(', '),
@@ -942,10 +923,8 @@ class EmployeeController {
                 createdAt: new Date().toISOString()
             };
 
-            // Create employee
             const employee = await larkServiceManager.addEmployee(employeeData);
             
-            // Add work history entries with duplicate check
             const workHistoryResults = [];
             for (const historyEntry of workHistoryData) {
                 const workHistoryExists = await larkServiceManager.checkWorkHistoryExists(employeeId, historyEntry.requestNo);
@@ -959,13 +938,15 @@ class EmployeeController {
                 }
                 
                 const workHistory = await larkServiceManager.addWorkHistory({
-                    employeeId: employeeId,
-                    requestNo: historyEntry.requestNo
+                    employeeId,
+                    requestNo: historyEntry.requestNo,
+                    fromDate: historyEntry.fromDate,
+                    toDate: historyEntry.toDate,
+                    hourlyRate: historyEntry.hourlyRate
                 });
                 workHistoryResults.push(workHistory);
             }
 
-            // ✅ SỬA: Clear cache sau khi thêm thành công để frontend có dữ liệu mới nhất
             console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Thêm nhân viên thành công', {
@@ -991,16 +972,14 @@ class EmployeeController {
     async updateEmployee(req, res) {
         try {
             const { id } = req.params;
-            const { fullName, phoneNumber, gender, hourlyRate, bankAccount, bankName, recruitmentLink, status } = req.body;
+            const { fullName, phoneNumber, gender, bankAccount, bankName, recruitmentLink, status } = req.body;
             
-            // Generate new employee ID with updated info
             const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
             const updatedData = {
                 employeeId,
                 fullName,
                 phoneNumber,
                 gender,
-                hourlyRate: parseFloat(hourlyRate),
                 bankAccount,
                 bankName,
                 recruitmentLink: recruitmentLink || '',
@@ -1010,7 +989,6 @@ class EmployeeController {
             
             const employee = await larkServiceManager.updateEmployee(id, updatedData);
             
-            // ✅ SỬA: Clear cache sau khi cập nhật thành công
             console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
@@ -1035,7 +1013,6 @@ class EmployeeController {
             const { id } = req.params;
             await larkServiceManager.deleteEmployee(id);
             
-            // ✅ SỬA: Clear cache sau khi xóa thành công
             console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Xóa nhân viên thành công'));
@@ -1096,20 +1073,25 @@ class EmployeeController {
      */
     async addWorkHistory(req, res) {
         try {
-            const { employeeId, requestNo } = req.body;
+            // ✅ CẬP NHẬT: Nhận thêm các trường mới từ request body
+            const { employeeId, requestNo, fromDate, toDate, hourlyRate } = req.body;
             
             if (!employeeId || !requestNo) {
                 return res.status(400).json(formatResponse(
                     false, 
-                    'Thiếu thông tin bắt buộc', 
+                    'Thiếu thông tin bắt buộc: employeeId và requestNo', 
                     null, 
                     'VALIDATION_ERROR'
                 ));
             }
             
+            // ✅ CẬP NHẬT: Truyền tất cả các trường vào addWorkHistory
             const workHistory = await larkServiceManager.addWorkHistory({
                 employeeId,
-                requestNo
+                requestNo,
+                fromDate,      // ✅ THÊM
+                toDate,        // ✅ THÊM
+                hourlyRate     // ✅ THÊM
             });
             
             res.json(formatResponse(true, 'Thêm work history thành công', { workHistory }));
@@ -1117,13 +1099,32 @@ class EmployeeController {
         } catch (error) {
             console.error('❌ Controller: addWorkHistory failed:', error);
 
+            // ✅ CẬP NHẬT: Xử lý các loại lỗi cụ thể từ validation mới
             if (error.message.includes('bị trùng với lịch sử làm việc cũ')) {
-                // Trả về lỗi 409 Conflict thay vì 500
                 return res.status(409).json(formatResponse(
                     false,
-                    error.message, // Sử dụng thông báo lỗi đã được tạo ở service
+                    error.message,
                     null,
                     'DATE_OVERLAP_CONFLICT'
+                ));
+            }
+
+            if (error.message.includes('phải nằm trong khoảng ngày của đề xuất tuyển dụng')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'INVALID_DATE_RANGE'
+                ));
+            }
+
+            if (error.message.includes('Từ ngày và Đến ngày là bắt buộc') || 
+                error.message.includes('Đến ngày phải lớn hơn hoặc bằng Từ ngày')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'VALIDATION_ERROR'
                 ));
             }
 
@@ -1132,6 +1133,110 @@ class EmployeeController {
                 `Lỗi khi thêm work history: ${error.message}`, 
                 null, 
                 'WORK_HISTORY_ADD_FAILED'
+            ));
+        }
+    }
+
+    // ✅ THÊM MỚI: Update work history
+    /**
+     * Update work history entry
+     * @route PUT /api/employees/work-history/:id
+     */
+    async updateWorkHistory(req, res) {
+        try {
+            const { id } = req.params;
+            const { employeeId, requestNo, fromDate, toDate, hourlyRate } = req.body;
+            
+            if (!employeeId || !requestNo) {
+                return res.status(400).json(formatResponse(
+                    false, 
+                    'Thiếu thông tin bắt buộc: employeeId và requestNo', 
+                    null, 
+                    'VALIDATION_ERROR'
+                ));
+            }
+            
+            console.log(`📝 CONTROLLER: Updating work history ID: ${id}...`);
+            
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            const updatedWorkHistory = await workHistoryService.updateWorkHistory(id, {
+                employeeId,
+                requestNo,
+                fromDate,
+                toDate,
+                hourlyRate
+            });
+            
+            console.log('✅ CONTROLLER: Work history updated successfully');
+            
+            res.json(formatResponse(true, 'Cập nhật lịch sử công việc thành công', { workHistory: updatedWorkHistory }));
+            
+        } catch (error) {
+            console.error('❌ Controller: updateWorkHistory failed:', error);
+
+            // Xử lý các loại lỗi cụ thể
+            if (error.message.includes('bị trùng với lịch sử làm việc cũ')) {
+                return res.status(409).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'DATE_OVERLAP_CONFLICT'
+                ));
+            }
+
+            if (error.message.includes('phải nằm trong khoảng ngày của đề xuất tuyển dụng')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'INVALID_DATE_RANGE'
+                ));
+            }
+
+            if (error.message.includes('Từ ngày và Đến ngày là bắt buộc') || 
+                error.message.includes('Đến ngày phải lớn hơn hoặc bằng Từ ngày')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'VALIDATION_ERROR'
+                ));
+            }
+
+            res.status(500).json(formatResponse(
+                false, 
+                `Lỗi khi cập nhật work history: ${error.message}`, 
+                null, 
+                'WORK_HISTORY_UPDATE_FAILED'
+            ));
+        }
+    }
+
+    // ✅ THÊM MỚI: Delete work history
+    /**
+     * Delete work history entry
+     * @route DELETE /api/employees/work-history/:id
+     */
+    async deleteWorkHistory(req, res) {
+        try {
+            const { id } = req.params;
+            
+            console.log(`🗑️ CONTROLLER: Deleting work history ID: ${id}...`);
+            
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            await workHistoryService.deleteWorkHistory(id);
+            
+            console.log('✅ CONTROLLER: Work history deleted successfully');
+            
+            res.json(formatResponse(true, 'Xóa lịch sử công việc thành công'));
+            
+        } catch (error) {
+            console.error('❌ Controller: deleteWorkHistory failed:', error);
+            res.status(500).json(formatResponse(
+                false, 
+                `Lỗi khi xóa work history: ${error.message}`, 
+                null, 
+                'WORK_HISTORY_DELETE_FAILED'
             ));
         }
     }
@@ -1147,6 +1252,9 @@ export const deleteEmployee = employeeController.deleteEmployee.bind(employeeCon
 export const searchEmployees = employeeController.searchEmployees.bind(employeeController);
 export const getEmployeeWorkHistory = employeeController.getEmployeeWorkHistory.bind(employeeController);
 export const addWorkHistory = employeeController.addWorkHistory.bind(employeeController);
+// ✅ THÊM MỚI: Export 2 methods mới
+export const updateWorkHistory = employeeController.updateWorkHistory.bind(employeeController);
+export const deleteWorkHistory = employeeController.deleteWorkHistory.bind(employeeController);
 
 ```
 
@@ -1478,20 +1586,34 @@ import { MasterDataValidator } from '../services/master-data/index.js';
 class ValidationMiddleware {
     // Middleware để validate dữ liệu nhân viên mới
     static validateAddEmployee(req, res, next) {
-        // Kiểm tra dữ liệu nhân viên
-        const employeeErrors = EmployeeValidator.validateEmployeeData(req.body);
-        if (employeeErrors.length > 0) {
-            return res.status(400).json(formatResponse(false, employeeErrors.join(', '), null, 'VALIDATION_ERROR'));
-        }
+    // ✅ Tạo employeeData giống logic trong controller
+    const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
+    const hourlyRate = (workHistoryData && workHistoryData[0]?.hourlyRate) || 0;
+    
+    const employeeDataForValidation = {
+        fullName,
+        phoneNumber, 
+        gender,
+        hourlyRate: parseFloat(hourlyRate),
+        bankAccount,
+        bankName
+    };
 
-        // Kiểm tra dữ liệu work history
-        const workHistoryErrors = EmployeeValidator.validateWorkHistoryData(req.body.workHistoryData || []);
-        if (workHistoryErrors.length > 0) {
-            return res.status(400).json(formatResponse(false, workHistoryErrors.join(', '), null, 'VALIDATION_ERROR'));
-        }
-        
-        next();
+    // Validate employee data với data đã xử lý
+    const employeeErrors = EmployeeValidator.validateEmployeeData(employeeDataForValidation);
+    if (employeeErrors.length > 0) {
+        return res.status(400).json(formatResponse(false, employeeErrors.join(', '), null, 'VALIDATION_ERROR'));
     }
+
+    // Validate work history
+    const workHistoryErrors = EmployeeValidator.validateWorkHistoryData(req.body.workHistoryData || []);
+    if (workHistoryErrors.length > 0) {
+        return res.status(400).json(formatResponse(false, workHistoryErrors.join(', '), null, 'VALIDATION_ERROR'));
+    }
+    
+    next();
+    }
+
 
     // Middleware để validate dữ liệu khi cập nhật nhân viên (có thể khác với khi thêm mới)
     static validateUpdateEmployee(req, res, next) {
@@ -1531,11 +1653,11 @@ export default ValidationMiddleware;
 // server/routes/attendance.js
 import express from 'express';
 import { 
-    getAttendanceLogs, 
-    addAttendanceLog, 
+    getAttendanceLogs,
+    addAttendanceLog,
     getEmployeeHours,
-    getAttendanceStats,           // ✅ THÊM MỚI
-    getEmployeeDetailedHours      // ✅ THÊM MỚI
+    getAttendanceStats,
+    getEmployeeDetailedHours
 } from '../controllers/attendanceController.js';
 import { authenticateUser } from '../middleware/auth.js';
 
@@ -1598,7 +1720,9 @@ import {
     deleteEmployee, 
     searchEmployees, 
     getEmployeeWorkHistory, 
-    addWorkHistory
+    addWorkHistory,
+    updateWorkHistory,
+    deleteWorkHistory
 } from '../controllers/employeeController.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.js';
 import ValidationMiddleware from '../middleware/validation.js';
@@ -1619,6 +1743,10 @@ router.delete('/:id', authenticateUser, authorizeRoles('hr', 'admin'), deleteEmp
 // Work history routes - SỬA ĐỂ TƯƠNG THÍCH VỚI CLIENT
 router.get('/:employeeId/work-history', authenticateUser, getEmployeeWorkHistory);
 router.post('/work-history', authenticateUser, authorizeRoles('hr', 'admin'), addWorkHistory);
+
+// ✅ THÊM MỚI: Routes cho sửa và xóa work history
+router.put('/work-history/:id', authenticateUser, authorizeRoles('hr', 'admin'), updateWorkHistory);
+router.delete('/work-history/:id', authenticateUser, authorizeRoles('hr', 'admin'), deleteWorkHistory);
 
 // ==================== ERROR HANDLING ====================
 // Handle 404 for unmatched routes
@@ -2253,7 +2381,6 @@ class AttendanceService extends BaseService {
 
     // ✅ SỬA: Sử dụng trực tiếp timestamp từ convertUnixToDateTime
     transformAttendanceData(larkData) {
-        console.log('🔍 LARK RAW DATA:', JSON.stringify(larkData.slice(0, 2), null, 2));
         
         return larkData.map(record => {
             let employeeId = '';
@@ -2270,16 +2397,6 @@ class AttendanceService extends BaseService {
             const convertedTimestamp = this.convertUnixToDateTime(record.fields['Thời gian chấm công']);
             const dateObj = new Date(convertedTimestamp);
             
-            console.log('🔍 RECORD FIELDS:', {
-                'Mã nhân viên_raw': record.fields['Mã nhân viên'],
-                'employeeId_extracted': `"${employeeId}"`,
-                'employeeId_type': typeof employeeId,
-                'raw_timestamp': record.fields['Thời gian chấm công'],
-                'converted_timestamp': convertedTimestamp,
-                'extracted_date': dateObj.toISOString().split('T')[0],
-                'position': record.fields['Vị trí'],
-                'type': record.fields['Phân loại']
-            });
             
             return {
                 id: record.record_id,
@@ -2287,8 +2404,8 @@ class AttendanceService extends BaseService {
                 type: record.fields['Phân loại'] || '',
                 position: record.fields['Vị trí'] || '',
                 timestamp: convertedTimestamp,
-                date: dateObj.toISOString().split('T')[0],  // ✅ SỬA: Extract từ converted timestamp
-                time: dateObj.toTimeString().slice(0, 5),   // ✅ SỬA: Extract từ converted timestamp  
+                date: dateObj.toISOString().split('T')[0],
+                time: dateObj.toTimeString().slice(0, 5),
                 notes: record.fields['Ghi chú'] || '',
                 createdAt: record.fields['Created At'] || new Date().toISOString()
             };
@@ -2876,6 +2993,7 @@ export default new LarkClient();
 import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
+import WorkHistoryService from './work-history-service.js';
 
 class EmployeeService extends BaseService {
     constructor() {
@@ -2883,36 +3001,27 @@ class EmployeeService extends BaseService {
         this.tableName = 'employees';
         this.baseId = process.env.LARK_BASE_ID;
         this.tableId = process.env.LARK_EMPLOYEE_TABLE_ID;
+        this.workHistoryService = new WorkHistoryService();
     }
 
     async initializeService() {
         // Initialize Lark Base connection
         console.log('Initializing Employee Service...');
+        await this.workHistoryService.initializeService();
     }
 
     async getAllEmployees() {
-        const cacheKey = 'employees_all';
-        let employees = CacheService.get(cacheKey);
-
-        if (employees) {
-            console.log(`✅ EMPLOYEE: Loaded ${employees.length} employees from cache.`);
-            return employees;
-        }
-
         try {
-            console.log('📡 EMPLOYEE: Fetching all employees from Lark API...');
-            
-            // ✅ Sử dụng getAllRecords để lấy toàn bộ dữ liệu, không bị giới hạn trang
+            console.log('📡 EMPLOYEE: Fetching all employees from Lark API (Cache is disabled)...');
+
             const response = await LarkClient.getAllRecords(
                 `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
             );
-            
-            employees = this.transformEmployeeData(response.data?.items || []);
-            console.log(`✅ EMPLOYEE: Transformed ${employees.length} total employees.`);
-            
-            CacheService.set(cacheKey, employees, 300000); // Cache trong 5 phút
-            console.log(`✅ EMPLOYEE: Cached ${employees.length} employees.`);
-            
+
+            let employees = this.transformEmployeeData(response.data?.items || []);
+            console.log(`✅ EMPLOYEE: Transformed ${employees.length} employees from employee table.`);
+
+            console.log(`✅ EMPLOYEE: Completed supplementing data for ${employees.length} employees.`);
             return employees;
         } catch (error) {
             console.error('❌ EMPLOYEE: Error fetching employees from Lark:', error.message);
@@ -2924,23 +3033,13 @@ class EmployeeService extends BaseService {
         return `${fullName} - ${phoneNumber}`;
     }
 
-
     async addEmployee(employeeData) {
         try {
             const transformedData = this.transformEmployeeForLark(employeeData);
-            
-            console.log('📤 EMPLOYEE SERVICE: Sending data to Lark:', transformedData);
-            console.log('🔍 EMPLOYEE SERVICE: Base ID:', this.baseId);
-            console.log('🔍 EMPLOYEE SERVICE: Table ID:', this.tableId);
-            console.log('🔍 EMPLOYEE SERVICE: URL will be:', `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`);
-            
+
             const response = await LarkClient.post(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`, {
                 fields: transformedData
             });
-
-            console.log('📥 EMPLOYEE SERVICE: Raw Lark response:', response);
-            console.log('📥 EMPLOYEE SERVICE: Response status:', response?.status);
-            console.log('📥 EMPLOYEE SERVICE: Response data:', response?.data);
 
             // Clear cache
             CacheService.delete('employees_all');
@@ -2948,32 +3047,28 @@ class EmployeeService extends BaseService {
             return {
                 success: true,
                 employeeId: employeeData.employeeId,
-                larkResponse: response  // ✅ THÊM: Debug response
+                larkResponse: response 
             };
             
         } catch (error) {
-            console.error('❌ EMPLOYEE SERVICE: Full error:', error);
-            console.error('❌ EMPLOYEE SERVICE: Error message:', error.message);
-            console.error('❌ EMPLOYEE SERVICE: Error stack:', error.stack);
+
             await this.handleError(error, 'addEmployee');
             throw error;
         }
     }
 
-
-
     async updateEmployee(id, employeeData) {
         try {
             const transformedData = this.transformEmployeeForLark(employeeData);
-            
+
             const response = await LarkClient.put(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`, {
                 fields: transformedData
             });
 
             // Clear cache
             CacheService.delete('employees_all');
-            
-            return this.transformEmployeeData([response.data])[0];
+
+            return this.transformEmployeeData([response.data.record])[0];
         } catch (error) {
             await this.handleError(error, 'updateEmployee');
             throw error;
@@ -2983,10 +3078,10 @@ class EmployeeService extends BaseService {
     async deleteEmployee(id) {
         try {
             await LarkClient.delete(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`);
-            
+
             // Clear cache
             CacheService.delete('employees_all');
-            
+
             return true;
         } catch (error) {
             await this.handleError(error, 'deleteEmployee');
@@ -2997,16 +3092,16 @@ class EmployeeService extends BaseService {
     async checkEmployeeIdExists(employeeId) {
         try {
             console.log(`🔍 EMPLOYEE: Checking for duplicate ID: ${employeeId}`);
-            
+
             // ✅ Sử dụng getAllRecords để đảm bảo kiểm tra trên toàn bộ nhân viên
             const response = await LarkClient.getAllRecords(
                 `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
             );
             const allEmployees = this.transformEmployeeData(response.data?.items || []);
-            
+
             const exists = allEmployees.some(emp => emp.employeeId === employeeId);
             console.log(`✅ EMPLOYEE: Duplicate check result: ${exists ? 'EXISTS' : 'NOT_EXISTS'}`);
-            
+
             return exists;
         } catch (error) {
             console.error('❌ EMPLOYEE: Error checking for duplicate employee ID:', error);
@@ -3015,42 +3110,34 @@ class EmployeeService extends BaseService {
         }
     }
 
-
     async searchEmployees(query) {
         const employees = await this.getAllEmployees();
-        
+
         if (!query) return employees;
-        
+
         const searchTerm = query.toLowerCase();
-        return employees.filter(emp => 
+        return employees.filter(emp =>
             emp.fullName.toLowerCase().includes(searchTerm) ||
             emp.employeeId.toLowerCase().includes(searchTerm) ||
             emp.phoneNumber.includes(searchTerm)
         );
     }
 
-    //generateEmployeeId(fullName, phoneNumber) {
-    //    return `${fullName} - ${phoneNumber}`;
-    //}
-
     transformEmployeeData(larkData) {
-        
+
         if (!Array.isArray(larkData)) {
             console.warn('⚠️ SERVICE: larkData is not an array:', typeof larkData);
             return [];
         }
-        
-        const transformed = larkData.map((record, index) => {
 
+        const transformed = larkData.map((record, index) => {
             const result = {
                 id: record.record_id,
-                // ✅ SỬA: Sử dụng tên cột tiếng Việt từ Larkbase
                 employeeId: record.fields['Mã nhân viên'] || '',
                 fullName: record.fields['Họ tên'] || '',
                 phoneNumber: record.fields['Số điện thoại'] || '',
                 gender: record.fields['Giới tính'] || '',
                 position: record.fields['Vị trí'] || '',
-                hourlyRate: record.fields['Mức lương/giờ'] || 0,
                 bankAccount: record.fields['Số tài khoản'] || '',
                 bankName: record.fields['Ngân hàng'] || '',
                 recruitmentLink: record.fields['Link đề xuất tuyển dụng'] || '',
@@ -3058,10 +3145,10 @@ class EmployeeService extends BaseService {
                 createdAt: record.fields['Created At'] || new Date().toISOString(),
                 updatedAt: record.fields['Updated At'] || new Date().toISOString()
             };
-            
+
             return result;
         });
-        
+
         return transformed;
     }
 
@@ -3072,48 +3159,12 @@ class EmployeeService extends BaseService {
             'Số điện thoại': employeeData.phoneNumber,
             'Giới tính': employeeData.gender,
             'Vị trí': employeeData.position || '',
-            'Mức lương/giờ': employeeData.hourlyRate,
             'Số tài khoản': employeeData.bankAccount,
             'Ngân hàng': employeeData.bankName,
             'Link đề xuất tuyển dụng': employeeData.recruitmentLink || '',
             'Trạng thái': employeeData.status || 'active'
         };
     }
-
-    // getMockEmployees() {
-    //     return [
-    //         {
-    //             id: 'emp_001',
-    //             employeeId: 'Nguyễn Văn A - 0123456789',
-    //             fullName: 'Nguyễn Văn A',
-    //             phoneNumber: '0123456789',
-    //             gender: 'Nam',
-    //             position: 'Nhân viên bán hàng',
-    //             hourlyRate: 50000,
-    //             bankAccount: '123456789',
-    //             bankName: 'Vietcombank',
-    //             recruitmentLink: '20250620014',
-    //             status: 'active',
-    //             createdAt: new Date().toISOString(),
-    //             updatedAt: new Date().toISOString()
-    //         },
-    //         {
-    //             id: 'emp_002',
-    //             employeeId: 'Trần Thị B - 0987654321',
-    //             fullName: 'Trần Thị B',
-    //             phoneNumber: '0987654321',
-    //             gender: 'Nữ',
-    //             position: 'Thu ngân',
-    //             hourlyRate: 45000,
-    //             bankAccount: '987654321',
-    //             bankName: 'Techcombank',
-    //             recruitmentLink: '20250620017',
-    //             status: 'active',
-    //             createdAt: new Date().toISOString(),
-    //             updatedAt: new Date().toISOString()
-    //         }
-    //     ];
-    // }
 }
 
 export default EmployeeService;
@@ -3139,10 +3190,6 @@ class EmployeeValidator {
 
         if (!employeeData.gender || !['Nam', 'Nữ'].includes(employeeData.gender)) {
             errors.push('Giới tính phải là Nam hoặc Nữ');
-        }
-
-        if (!employeeData.hourlyRate || employeeData.hourlyRate <= 0) {
-            errors.push('Lương theo giờ phải lớn hơn 0');
         }
 
         if (!employeeData.bankAccount || employeeData.bankAccount.trim().length < 6) {
@@ -3202,10 +3249,10 @@ export { default as EmployeeValidator } from './employee-validator.js';
 
 ==================== File: .\server\services\employees\work-history-service.js ====================
 
-// Work history service
+// server/services/employees/work-history-service.js
 import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
-
+import CacheService from '../core/cache-service.js';
 
 
 // **HÀM TIỆN ÍCH ĐỊNH DẠNG NGÀY**
@@ -3221,20 +3268,14 @@ const formatDate = (dateValue) => {
 };
 
 
-
 // Hàm tiện ích để kiểm tra hai khoảng ngày có chồng chéo không
 const dateRangesOverlap = (start1, end1, start2, end2) => {
     const s1 = new Date(start1);
     const e1 = new Date(end1);
     const s2 = new Date(start2);
     const e2 = new Date(end2);
-    // Trùng lặp khi khoảng bắt đầu của cái này trước khi khoảng kết thúc của cái kia
-    // và khoảng kết thúc của cái này sau khi khoảng bắt đầu của cái kia.
     return s1 <= e2 && e1 >= s2;
 };
-
-
-
 
 
 class WorkHistoryService extends BaseService {
@@ -3242,6 +3283,7 @@ class WorkHistoryService extends BaseService {
         super();
         this.baseId = process.env.LARK_BASE_ID;
         this.tableId = process.env.LARK_WORK_HISTORY_TABLE_ID;
+        this.salaryTableId = process.env.LARK_SALARY_TABLE_ID || 'tblLdJp61bLeK3MG';
     }
 
 
@@ -3250,14 +3292,81 @@ class WorkHistoryService extends BaseService {
     }
 
 
+    async getSalaryData() {
+        const cacheKey = 'salary_data_all';
+        let salaryData = CacheService.get(cacheKey);
+
+
+        if (salaryData) {
+            console.log(`✅ SALARY: Loaded ${salaryData.length} records from cache.`);
+            return salaryData;
+        }
+
+
+        try {
+            console.log('📡 SALARY: Fetching salary data from Lark...');
+            const response = await LarkClient.getAllRecords(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.salaryTableId}/records`
+            );
+
+
+            salaryData = this.transformSalaryData(response.data?.items || []);
+            console.log(`✅ SALARY: Transformed ${salaryData.length} total records.`);
+
+
+            CacheService.set(cacheKey, salaryData, 300000); // Cache 5 phút
+            return salaryData;
+        } catch (error) {
+            console.error('❌ Error getting salary data:', error);
+            return [];
+        }
+    }
+
+
+    transformSalaryData(larkData) {
+        return larkData.map(record => ({
+            id: record.record_id,
+            employeeId: this.extractEmployeeId(record.fields['Mã nhân viên']),
+            hourlyRate: record.fields['Mức lương/giờ'] || null,
+        }));
+    }
+
+
+    extractEmployeeId(employeeIdField) {
+        if (!employeeIdField) return '';
+        
+        if (Array.isArray(employeeIdField) && employeeIdField.length > 0) {
+            const firstRecord = employeeIdField[0];
+            return firstRecord?.text || firstRecord?.name || '';
+        }
+        
+        if (typeof employeeIdField === 'string') {
+            return employeeIdField;
+        }
+        
+        if (typeof employeeIdField === 'object' && employeeIdField.text) {
+            return employeeIdField.text;
+        }
+        
+        return '';
+    }
+
+
     async getWorkHistoryByEmployee(employeeId) {
         try {
+            console.log(`🔍 Getting work history for employee: ${employeeId}`);
+            
             const response = await LarkClient.get(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`, {
                 filter: `AND(CurrentValue.[Mã nhân viên] = "${employeeId}")`
             });
 
+            const workHistoryData = response.data?.items || [];
+            console.log(`📋 Found ${workHistoryData.length} work history records`);
 
-            return this.transformWorkHistoryData(response.data?.items || []);
+            const salaryData = await this.getSalaryData();
+            console.log(`💰 Found ${salaryData.length} salary records`);
+
+            return this.transformWorkHistoryDataWithSalary(workHistoryData, salaryData);
         } catch (error) {
             console.error('Error fetching work history:', error);
             return [];
@@ -3265,7 +3374,38 @@ class WorkHistoryService extends BaseService {
     }
 
 
-    // ✅ THÊM METHOD MỚI
+    transformWorkHistoryDataWithSalary(workHistoryData, salaryData) {
+        const salaryMap = new Map();
+        salaryData.forEach(salary => {
+            if (salary.employeeId) {
+                salaryMap.set(salary.employeeId, salary.hourlyRate);
+            }
+        });
+
+        console.log(`🗺️ Created salary map with ${salaryMap.size} entries`);
+        console.log(`🔍 Salary map keys:`, Array.from(salaryMap.keys()));
+
+        return workHistoryData.map(record => {
+            const employeeId = record.fields['Mã nhân viên'] || '';
+            const hourlyRateFromSalary = salaryMap.get(employeeId);
+            
+            console.log(`💡 Employee ${employeeId}: Work history hourlyRate = ${record.fields['Mức lương/giờ']}, Salary table hourlyRate = ${hourlyRateFromSalary}`);
+
+            return {
+                id: record.record_id,
+                employeeId: employeeId,
+                requestNo: record.fields['Request No.'] || '',
+                fromDate: record.fields['Từ ngày'] || null,
+                toDate: record.fields['Đến ngày'] || null,
+                hourlyRate: record.fields['Mức lương/giờ'] || hourlyRateFromSalary || null,
+                // SỬA: Lấy giá trị thực từ Lark, không tự tạo mới
+                createdAt: record.fields['Created At'] || null, 
+                updatedAt: record.fields['Updated At'] || null
+            };
+        });
+    }
+
+
     async checkWorkHistoryExists(employeeId, requestNo) {
         try {
             console.log(`🔍 WORK HISTORY: Checking duplicate (${employeeId}, ${requestNo})`);
@@ -3275,11 +3415,10 @@ class WorkHistoryService extends BaseService {
             const records = response.data?.items || [];
             console.log(`📋 WORK HISTORY: Found ${records.length} total records`);
             
-            // Check xem có record nào match (employeeId, requestNo) không
             const exists = records.some(record => {
                 const fields = record.fields || {};
-                const recordEmployeeId = fields['Employee ID'];
-                const recordRequestNo = fields['Request No'];
+                const recordEmployeeId = fields['Mã nhân viên'];
+                const recordRequestNo = fields['Request No.'];
                 
                 const isMatch = recordEmployeeId === employeeId && recordRequestNo === requestNo;
                 
@@ -3295,7 +3434,7 @@ class WorkHistoryService extends BaseService {
             
         } catch (error) {
             console.error('❌ Error checking work history exists:', error);
-            return false; // Safe fallback - cho phép thêm nếu không check được
+            return false;
         }
     }
 
@@ -3303,57 +3442,93 @@ class WorkHistoryService extends BaseService {
     async validateWorkHistoryDateOverlap(employeeId, newRequestNo, recruitmentService) {
         console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, Request ${newRequestNo}`);
 
-        // 1. Lấy khoảng ngày của lịch sử làm việc MỚI
         const newRequestDetails = await recruitmentService.getRequestByNo(newRequestNo);
         if (!newRequestDetails.fromDate || !newRequestDetails.toDate) {
-            // Nếu không có ngày, bỏ qua kiểm tra
-            console.warn(`⚠️  Không tìm thấy ngày cho Request No. ${newRequestNo}, bỏ qua kiểm tra trùng lặp.`);
+            console.warn(`⚠️ Không tìm thấy ngày cho Request No. ${newRequestNo}, bỏ qua kiểm tra trùng lặp.`);
             return;
         }
         const newStartDate = newRequestDetails.fromDate;
         const newEndDate = newRequestDetails.toDate;
 
-        // 2. Lấy tất cả lịch sử làm việc HIỆN TẠI của nhân viên
         const existingHistories = await this.getWorkHistoryByEmployee(employeeId);
         if (existingHistories.length === 0) {
-            console.log('✅  Không có lịch sử cũ, không cần kiểm tra.');
-            return; // Không có gì để so sánh, hợp lệ
+            console.log('✅ Không có lịch sử cũ, không cần kiểm tra.');
+            return;
         }
 
-        // 3. Lặp qua từng lịch sử cũ và so sánh
         for (const oldHistory of existingHistories) {
             const oldRequestDetails = await recruitmentService.getRequestByNo(oldHistory.requestNo);
             if (!oldRequestDetails || !oldRequestDetails.fromDate || !oldRequestDetails.toDate) {
-                continue; // Bỏ qua nếu lịch sử cũ không có dữ liệu ngày
+                continue;
             }
 
             const oldStartDate = oldRequestDetails.fromDate;
             const oldEndDate = oldRequestDetails.toDate;
 
-            // Kiểm tra trùng lặp
             if (dateRangesOverlap(newStartDate, newEndDate, oldStartDate, oldEndDate)) {
-
                 const formattedNewStart = formatDate(newStartDate);
                 const formattedNewEnd = formatDate(newEndDate);
                 const formattedOldStart = formatDate(oldStartDate);
                 const formattedOldEnd = formatDate(oldEndDate);
 
                 const errorMessage = `Khoảng thời gian từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`;
-                console.error(`❌  DATE OVERLAP DETECTED: ${errorMessage}`);
+                console.error(`❌ DATE OVERLAP DETECTED: ${errorMessage}`);
                 throw new Error(errorMessage);
             }
         }
         
-        console.log('✅  Kiểm tra trùng lặp ngày thành công, không có chồng chéo.');
+        console.log('✅ Kiểm tra trùng lặp ngày thành công, không có chồng chéo.');
+    }
+
+
+    validateWorkHistoryFields(workHistoryData, recruitmentDetails) {
+        const { fromDate, toDate, hourlyRate } = workHistoryData;
+        
+        if (!fromDate || !toDate) {
+            throw new Error('Từ ngày và Đến ngày là bắt buộc.');
+        }
+
+        const fromDateObj = new Date(fromDate);
+        const toDateObj = new Date(toDate);
+        
+        if (isNaN(fromDateObj.getTime()) || isNaN(toDateObj.getTime())) {
+            throw new Error('Định dạng ngày không hợp lệ.');
+        }
+
+        if (toDateObj < fromDateObj) {
+            throw new Error('Đến ngày phải lớn hơn hoặc bằng Từ ngày.');
+        }
+
+        if (recruitmentDetails && recruitmentDetails.fromDate && recruitmentDetails.toDate) {
+            const recruitmentStart = new Date(recruitmentDetails.fromDate);
+            const recruitmentEnd = new Date(recruitmentDetails.toDate);
+
+            if (fromDateObj < recruitmentStart || toDateObj > recruitmentEnd) {
+                throw new Error(
+                    `Khoảng ngày làm việc (${formatDate(fromDate)} - ${formatDate(toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
+                );
+            }
+        }
+
+        if (hourlyRate !== undefined && (isNaN(hourlyRate) || hourlyRate < 0)) {
+            throw new Error('Mức lương/giờ phải là số và không được âm.');
+        }
     }
 
 
     async addWorkHistory(workHistoryData, recruitmentService) {
-        // **Thêm recruitmentService làm tham số**
         try {
-            const { employeeId, requestNo } = workHistoryData;
+            const { employeeId, requestNo, fromDate, toDate, hourlyRate } = workHistoryData;
 
-            // **GỌI HÀM VALIDATE Ở ĐÂY**
+            console.log('📥 WORK HISTORY SERVICE: Processing new work history:', { employeeId, requestNo, fromDate, toDate, hourlyRate });
+
+            const recruitmentDetails = await recruitmentService.getRequestByNo(requestNo);
+
+            if (!recruitmentDetails) {
+                throw new Error(`Không tìm thấy đề xuất tuyển dụng với mã: ${requestNo}`);
+            }
+
+            this.validateWorkHistoryFields(workHistoryData, recruitmentDetails);
             await this.validateWorkHistoryDateOverlap(employeeId, requestNo, recruitmentService);
 
             const transformedData = this.transformWorkHistoryForLark(workHistoryData);
@@ -3366,56 +3541,134 @@ class WorkHistoryService extends BaseService {
 
             console.log('📥 WORK HISTORY SERVICE: Raw Lark response:', response);
 
+            // THÊM: Kiểm tra mã lỗi từ Lark API
+            if (response.code !== 0) {
+                throw new Error(`Lỗi từ Lark API khi thêm: ${response.msg} (code: ${response.code})`);
+            }
+
+            CacheService.delete('work_history_all');
+            CacheService.delete('salary_data_all');
+
             return {
                 success: true,
-                employeeId: workHistoryData.employeeId,
-                requestNo: workHistoryData.requestNo,
+                ...workHistoryData,
                 larkResponse: response
             };
             
         } catch (error) {
             console.error('❌ WORK HISTORY SERVICE: Full error:', error);
             await this.handleError(error, 'addWorkHistory');
-            throw error; // Ném lỗi để controller bắt được
+            throw error;
         }
     }
 
 
-    // async addWorkHistory(workHistoryData) {
-    //     try {
-    //         const transformedData = this.transformWorkHistoryForLark(workHistoryData);
+    async updateWorkHistory(id, workHistoryData) {
+        try {
+            const { employeeId, requestNo, fromDate, toDate, hourlyRate } = workHistoryData;
+
+            console.log('📝 WORK HISTORY SERVICE: Updating work history:', { id, ...workHistoryData });
+
+            const currentWorkHistory = await this.getWorkHistoryById(id);
+            if (!currentWorkHistory) {
+                throw new Error(`Không tìm thấy lịch sử công việc với ID: ${id}`);
+            }
+
+            if (!employeeId || !requestNo) {
+                throw new Error('Mã nhân viên và Request No. là bắt buộc');
+            }
+
+            // SỬA: Loại bỏ hoàn toàn việc ghi đè vào các trường hệ thống
+            const transformedData = this.transformWorkHistoryForLark(workHistoryData);
             
-    //         console.log('📤 WORK HISTORY SERVICE: Sending data to Lark:', transformedData);
-    //         console.log('🔍 WORK HISTORY SERVICE: Base ID:', this.baseId);
-    //         console.log('🔍 WORK HISTORY SERVICE: Table ID:', this.tableId);
-    //         console.log('🔍 WORK HISTORY SERVICE: URL will be:', `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`);
+            console.log('📤 WORK HISTORY SERVICE: Updating data in Lark:', transformedData);
             
-    //         const response = await LarkClient.post(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`, {
-    //             fields: transformedData
-    //         });
+            const response = await LarkClient.put(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`, {
+                fields: transformedData
+            });
 
-    //         console.log('📥 WORK HISTORY SERVICE: Raw Lark response:', response);
-    //         console.log('📥 WORK HISTORY SERVICE: Response status:', response?.status);
-    //         console.log('📥 WORK HISTORY SERVICE: Response data:', response?.data);
+            console.log('📥 WORK HISTORY SERVICE: Update response:', response);
 
-    //         return {
-    //             success: true,
-    //             employeeId: workHistoryData.employeeId,
-    //             requestNo: workHistoryData.requestNo,
-    //             larkResponse: response  // ✅ THÊM: Debug response
-    //         };
+            // THÊM: Kiểm tra mã lỗi từ Lark API
+            if (response.code !== 0) {
+                throw new Error(`Lỗi từ Lark API khi cập nhật: ${response.msg} (code: ${response.code})`);
+            }
+
+            // Xóa cache để đảm bảo dữ liệu được làm mới
+            CacheService.delete('work_history_all');
+            CacheService.delete('salary_data_all');
+            CacheService.clear(); // Xóa toàn bộ cache để an toàn
+
+            return {
+                success: true,
+                id: id,
+                ...workHistoryData,
+                larkResponse: response
+            };
             
-    //     } catch (error) {
-    //         console.error('❌ WORK HISTORY SERVICE: Full error:', error);
-    //         console.error('❌ WORK HISTORY SERVICE: Error message:', error.message);
-    //         console.error('❌ WORK HISTORY SERVICE: Error stack:', error.stack);
-    //         await this.handleError(error, 'addWorkHistory');
-    //         throw error;
-    //     }
-    // }
+        } catch (error) {
+            console.error('❌ WORK HISTORY SERVICE: Update error:', error);
+            await this.handleError(error, 'updateWorkHistory');
+            throw error;
+        }
+    }
 
 
-    // Thêm method này vào class WorkHistoryService
+    async deleteWorkHistory(id) {
+        try {
+            console.log('🗑️ WORK HISTORY SERVICE: Deleting work history:', id);
+
+            const currentWorkHistory = await this.getWorkHistoryById(id);
+            if (!currentWorkHistory) {
+                throw new Error(`Không tìm thấy lịch sử công việc với ID: ${id}`);
+            }
+
+            const response = await LarkClient.delete(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`);
+            
+            // THÊM: Kiểm tra mã lỗi từ Lark API
+            if (response.code !== 0) {
+                throw new Error(`Lỗi từ Lark API khi xóa: ${response.msg} (code: ${response.code})`);
+            }
+
+            console.log('✅ WORK HISTORY SERVICE: Work history deleted successfully');
+
+            CacheService.delete('work_history_all');
+            CacheService.delete('salary_data_all');
+            CacheService.clear();
+            
+            return {
+                success: true,
+                message: 'Xóa lịch sử công việc thành công'
+            };
+            
+        } catch (error) {
+            console.error('❌ WORK HISTORY SERVICE: Delete error:', error);
+            await this.handleError(error, 'deleteWorkHistory');
+            throw error;
+        }
+    }
+
+
+    async getWorkHistoryById(id) {
+        try {
+            console.log('🔍 WORK HISTORY SERVICE: Getting work history by ID:', id);
+            
+            const response = await LarkClient.get(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`);
+            
+            if (response.data && response.data.record) {
+                const salaryData = await this.getSalaryData();
+                return this.transformWorkHistoryDataWithSalary([response.data.record], salaryData)[0];
+            }
+            
+            return null;
+            
+        } catch (error) {
+            console.error('❌ Error getting work history by ID:', error);
+            return null;
+        }
+    }
+
+
     async getAllWorkHistory() {
         const cacheKey = 'work_history_all';
         let history = CacheService.get(cacheKey);
@@ -3431,7 +3684,8 @@ class WorkHistoryService extends BaseService {
                 `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
             );
 
-            history = this.transformWorkHistoryData(response.data?.items || []);
+            const salaryData = await this.getSalaryData();
+            history = this.transformWorkHistoryDataWithSalary(response.data?.items || [], salaryData);
             console.log(`✅ WORK HISTORY: Transformed ${history.length} total records.`);
 
             CacheService.set(cacheKey, history, 300000);
@@ -3443,32 +3697,40 @@ class WorkHistoryService extends BaseService {
     }
 
 
-
-    async deleteWorkHistory(id) {
-        try {
-            await LarkClient.delete(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`);
-            return true;
-        } catch (error) {
-            await this.handleError(error, 'deleteWorkHistory');
-            throw error;
-        }
-    }
-
-
     transformWorkHistoryData(larkData) {
         return larkData.map(record => ({
             id: record.record_id,
             employeeId: record.fields['Mã nhân viên'] || '',
-            requestNo: record.fields['Request No.'] || ''
+            requestNo: record.fields['Request No.'] || '',
+            fromDate: record.fields['Từ ngày'] || null,
+            toDate: record.fields['Đến ngày'] || null,
+            hourlyRate: record.fields['Mức lương/giờ'] || null,
+            // SỬA: Lấy giá trị thực từ Lark, không tự tạo mới
+            createdAt: record.fields['Created At'] || null,
+            updatedAt: record.fields['Updated At'] || null
         }));
     }
 
 
     transformWorkHistoryForLark(workHistoryData) {
-        return {
+        const larkData = {
             'Mã nhân viên': workHistoryData.employeeId,
             'Request No.': workHistoryData.requestNo
         };
+
+        if (workHistoryData.fromDate) {
+            larkData['Từ ngày'] = workHistoryData.fromDate;
+        }
+
+        if (workHistoryData.toDate) {
+            larkData['Đến ngày'] = workHistoryData.toDate;
+        }
+
+        if (workHistoryData.hourlyRate !== undefined && workHistoryData.hourlyRate !== null) {
+            larkData['Mức lương/giờ'] = parseFloat(workHistoryData.hourlyRate);
+        }
+
+        return larkData;
     }
 }
 
@@ -3996,9 +4258,33 @@ class RecruitmentService extends BaseService {
         // Giữ nguyên logic
     }
 
+
     async getRequestByNo(requestNo) {
-        // Giữ nguyên logic
+        console.log('🔍 RECRUITMENT: Searching for request number:', requestNo);
+
+        // BƯỚC 1: Chủ động lấy TẤT CẢ các đề xuất tuyển dụng.
+        // Hàm này sẽ tự động dùng cache nếu có, hoặc gọi API nếu không.
+        const allRequests = await this.getRecruitmentRequests();
+        
+        if (!allRequests || allRequests.length === 0) {
+            console.log('⚠️ RECRUITMENT: No requests found to search in.');
+            return null;
+        }
+
+        // BƯỚC 2: Tìm kiếm trên danh sách `allRequests` vừa lấy được.
+        // Logic tìm kiếm bên trong `find` vẫn giữ nguyên.
+        const found = allRequests.find(record => {
+            // `record` ở đây đã được transform bởi `transformRecruitmentData`
+            // nên nó là một object phẳng, không cần `record.fields`.
+            const requestValue = record.requestNo;
+            
+            return String(requestValue || '').trim() === String(requestNo).trim();
+        });
+
+        console.log('🔍 RECRUITMENT: Search result:', found ? 'FOUND' : 'NOT_FOUND');
+        return found;
     }
+
 
     // ✅ THAY ĐỔI LOGIC CỐT LÕI TẠI ĐÂY
     async getRecruitmentHoursSummary() {
@@ -4253,6 +4539,83 @@ class RecruitmentService extends BaseService {
         }
     }
 
+
+    formatLarkDate(dateValue) {
+        if (!dateValue) return '';
+        
+        try {
+            let date;
+            
+            // Nếu là timestamp (number)
+            if (typeof dateValue === 'number') {
+                date = new Date(dateValue);
+            } 
+            // Nếu là string ISO
+            else if (typeof dateValue === 'string') {
+                date = new Date(dateValue);
+            }
+            // Nếu đã là Date object
+            else if (dateValue instanceof Date) {
+                date = dateValue;
+            }
+            else {
+                return 'Invalid Date';
+            }
+            
+            // Kiểm tra tính hợp lệ của date
+            if (isNaN(date.getTime())) {
+                return 'Invalid Date';
+            }
+            
+            // Format thành DD/MM/YYYY
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            
+            return `${day}/${month}/${year}`;
+        } catch (error) {
+            console.error('Error formatting Lark date:', error);
+            return 'Format Error';
+        }
+    }
+
+    formatLarkTime(timeValue) {
+        if (!timeValue) return '';
+        
+        try {
+            let date;
+            
+            // Nếu là timestamp (number)
+            if (typeof timeValue === 'number') {
+                date = new Date(timeValue);
+            }
+            // Nếu là string ISO
+            else if (typeof timeValue === 'string') {
+                date = new Date(timeValue);
+            }
+            // Nếu đã là Date object
+            else if (timeValue instanceof Date) {
+                date = timeValue;
+            }
+            else {
+                return 'Invalid Time';
+            }
+            
+            // Kiểm tra tính hợp lệ của date
+            if (isNaN(date.getTime())) {
+                return 'Invalid Time';
+            }
+            
+            // Format thành HH:MM
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            
+            return `${hours}:${minutes}`;
+        } catch (error) {
+            console.error('Error formatting Lark time:', error);
+            return 'Format Error';
+        }
+    }
 
 
     async getAllWorkHistory() {
@@ -6292,6 +6655,14 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
   const [selectedRecruitments, setSelectedRecruitments] = useState([]);
   const [isRecruitmentModalOpen, setIsRecruitmentModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // ✅ THÊM: State cho các trường mới
+  const [workHistoryData, setWorkHistoryData] = useState({
+    fromDate: '',
+    toDate: '',
+    hourlyRate: ''
+  });
+  
   const { showNotification } = useNotification();
 
   /**
@@ -6302,8 +6673,52 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
   const handleRecruitmentSelect = (recruitmentObject) => {
     // Luôn nhận về một mảng, kể cả khi chỉ có một lựa chọn.
     setSelectedRecruitments(recruitmentObject ? [recruitmentObject] : []);
-    //setSelectedRecruitments(recruitments || []);
     setIsRecruitmentModalOpen(false);
+  };
+
+  // ✅ THÊM: Xử lý thay đổi dữ liệu form
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setWorkHistoryData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // ✅ THÊM: Validation các trường mới
+  const validateForm = () => {
+    const errors = [];
+
+    // Kiểm tra đã chọn đề xuất
+    if (selectedRecruitments.length === 0) {
+      errors.push('Vui lòng chọn một đề xuất tuyển dụng.');
+    }
+
+    // Kiểm tra các trường bắt buộc
+    if (!workHistoryData.fromDate) {
+      errors.push('Từ ngày là bắt buộc.');
+    }
+
+    if (!workHistoryData.toDate) {
+      errors.push('Đến ngày là bắt buộc.');
+    }
+
+    // Kiểm tra logic ngày
+    if (workHistoryData.fromDate && workHistoryData.toDate) {
+      const fromDate = new Date(workHistoryData.fromDate);
+      const toDate = new Date(workHistoryData.toDate);
+      
+      if (toDate < fromDate) {
+        errors.push('Đến ngày phải lớn hơn hoặc bằng Từ ngày.');
+      }
+    }
+
+    // Kiểm tra mức lương
+    if (workHistoryData.hourlyRate && (isNaN(workHistoryData.hourlyRate) || parseFloat(workHistoryData.hourlyRate) < 0)) {
+      errors.push('Mức lương/giờ phải là số và không được âm.');
+    }
+
+    return errors;
   };
 
   /**
@@ -6312,9 +6727,10 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Kiểm tra xem mảng selectedRecruitments có phần tử nào không.
-    if (selectedRecruitments.length === 0) {
-      showNotification('Vui lòng chọn một đề xuất tuyển dụng.', 'warning');
+    // ✅ CẬP NHẬT: Sử dụng validation mới
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0) {
+      showNotification(validationErrors.join(' '), 'warning');
       return;
     }
 
@@ -6322,12 +6738,16 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
     setIsLoading(true);
 
     try {
-      // API `addWorkHistory` chỉ cần employeeId và requestNo.
+      // ✅ CẬP NHẬT: API payload với các trường mới
       const workHistoryPayload = {
         employeeId: employee.employeeId,
-        // Lấy requestNo từ phần tử đầu tiên của mảng.
         requestNo: selectedRecruitments[0].requestNo,
+        fromDate: workHistoryData.fromDate,
+        toDate: workHistoryData.toDate,
+        hourlyRate: workHistoryData.hourlyRate ? parseFloat(workHistoryData.hourlyRate) : undefined,
       };
+
+      console.log('📤 Sending work history payload:', workHistoryPayload);
 
       const response = await addWorkHistory(workHistoryPayload);
 
@@ -6354,7 +6774,7 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
         isOpen={isOpen}
         onClose={onClose}
         title={`Thêm Lịch sử cho: ${employee.fullName}`}
-        size="md"
+        size="lg"
       >
         <form onSubmit={handleSubmit}>
           {/* Trường hiển thị mã nhân viên (không cho sửa) */}
@@ -6382,6 +6802,9 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
                       <strong className="d-block">Mã ĐX: {selectedRecruitments[0].requestNo}</strong>
                       <small className="text-muted">
                         Vị trí: {selectedRecruitments[0].position} • Phòng ban: {selectedRecruitments[0].department}
+                      </small>
+                      <small className="d-block text-info">
+                        Thời gian ĐX: {selectedRecruitments[0].fromDateFormatted} - {selectedRecruitments[0].toDateFormatted}
                       </small>
                     </div>
                     <div className="d-flex align-items-center gap-1">
@@ -6420,6 +6843,73 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
             )}
           </div>
 
+          {/* ✅ THÊM: Các trường mới */}
+          <div className="row mb-3">
+            <div className="col-md-6">
+              <label htmlFor="fromDate" className="form-label">
+                Từ ngày <span className="text-danger">*</span>
+              </label>
+              <input
+                type="date"
+                className="form-control"
+                id="fromDate"
+                name="fromDate"
+                value={workHistoryData.fromDate}
+                onChange={handleInputChange}
+                disabled={isLoading}
+              />
+              <small className="form-text text-muted">
+                Ngày bắt đầu làm việc
+              </small>
+            </div>
+            <div className="col-md-6">
+              <label htmlFor="toDate" className="form-label">
+                Đến ngày <span className="text-danger">*</span>
+              </label>
+              <input
+                type="date"
+                className="form-control"
+                id="toDate"
+                name="toDate"
+                value={workHistoryData.toDate}
+                onChange={handleInputChange}
+                disabled={isLoading}
+              />
+              <small className="form-text text-muted">
+                Ngày kết thúc làm việc
+              </small>
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label htmlFor="hourlyRate" className="form-label">
+              Mức lương/giờ (VNĐ)
+            </label>
+            <input
+              type="number"
+              className="form-control"
+              id="hourlyRate"
+              name="hourlyRate"
+              value={workHistoryData.hourlyRate}
+              onChange={handleInputChange}
+              min="0"
+              step="1000"
+              placeholder="Ví dụ: 50000"
+              disabled={isLoading}
+            />
+            <small className="form-text text-muted">
+              Để trống nếu sử dụng mức lương mặc định. Nhập số để áp dụng mức lương đặc biệt (ngày lễ, OT...)
+            </small>
+          </div>
+
+          {/* ✅ THÊM: Cảnh báo validation */}
+          {selectedRecruitments.length > 0 && (workHistoryData.fromDate || workHistoryData.toDate) && (
+            <div className="alert alert-info small">
+              <i className="fas fa-info-circle me-2"></i>
+              <strong>Lưu ý:</strong> Khoảng thời gian làm việc phải nằm trong khoảng thời gian của đề xuất tuyển dụng ({selectedRecruitments[0].fromDateFormatted} - {selectedRecruitments[0].toDateFormatted}).
+            </div>
+          )}
+
           {/* Các nút hành động ở chân modal */}
           <div className="modal-footer px-0 pb-0 border-0">
             <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isLoading}>
@@ -6429,8 +6919,8 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
               type="submit"
               className="btn btn-primary"
               loading={isLoading}
-              // Nút Lưu bị vô hiệu hóa khi đang tải hoặc chưa chọn đề xuất
-              disabled={isLoading || selectedRecruitments.length === 0}
+              // Nút Lưu bị vô hiệu hóa khi đang tải hoặc chưa đủ thông tin
+              disabled={isLoading || selectedRecruitments.length === 0 || !workHistoryData.fromDate || !workHistoryData.toDate}
             >
               Thêm Lịch sử
             </ButtonLoading>
@@ -6465,328 +6955,388 @@ export default AddWorkHistoryModal;
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-// Đã bỏ import employeeService vì không còn gọi API trực tiếp ở đây
-// import { employeeService } from '../../services/employee'; 
 import { useNotification } from '../../hooks/useNotification';
 import RecruitmentModal from './RecruitmentModal';
 
-
 const EmployeeAddForm = ({ onSave, isLoading: externalLoading }) => {
-    const navigate = useNavigate();
-    const { showNotification } = useNotification();
-    const fullNameInputRef = useRef(null);
+  const navigate = useNavigate();
+  const { showNotification } = useNotification();
+  const fullNameInputRef = useRef(null);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedRecruitment, setSelectedRecruitment] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-    // State cho việc xử lý bất đồng bộ nội bộ của form
-    // Giữ lại để có thể vô hiệu hóa form ngay lập tức khi submit
-    const [isSubmitting, setIsSubmitting] = useState(false); 
-    
-    // State cho việc chọn đề xuất tuyển dụng
-    const [selectedRecruitment, setSelectedRecruitment] = useState(null); 
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    
-    // State khởi tạo cho form để dễ dàng reset
-    const initialFormData = {
-        fullName: '',
-        phoneNumber: '',
-        gender: 'Nam',
-        hourlyRate: '',
-        bankAccount: '',
-        bankName: '',
-    };
-    
-    // State cho dữ liệu form
-    const [formData, setFormData] = useState(initialFormData);
+  const initialFormData = {
+    fullName: '',
+    phoneNumber: '',
+    gender: 'Nam',
+    bankAccount: '',
+    bankName: '',
+  };
 
+  const initialWorkHistoryData = {
+    fromDate: '',
+    toDate: '',
+    hourlyRate: ''
+  };
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
+  const [formData, setFormData] = useState(initialFormData);
+  const [workHistoryData, setWorkHistoryData] = useState(initialWorkHistoryData);
 
+  const handleChange = e => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
 
-    // Hàm reset form về trạng thái ban đầu
-    const resetForm = () => {
-        setFormData(initialFormData);
-        setSelectedRecruitment(null);
-        fullNameInputRef.current?.focus();
-    };
+  const handleWorkHistoryChange = e => {
+    const { name, value } = e.target;
+    setWorkHistoryData(prev => ({ ...prev, [name]: value }));
+  };
 
+  const resetForm = () => {
+    setFormData(initialFormData);
+    setWorkHistoryData(initialWorkHistoryData);
+    setSelectedRecruitment(null);
+    fullNameInputRef.current?.focus();
+  };
 
-    // Xử lý khi chọn một đề xuất tuyển dụng từ modal
-    const handleSelectRecruitment = (request) => {
-        setSelectedRecruitment(request);
-        setIsModalOpen(false);
-    };
+  const handleSelectRecruitment = request => {
+    setSelectedRecruitment(request);
+    setIsModalOpen(false);
+  };
 
+  const handleRemoveRecruitment = () => {
+    setSelectedRecruitment(null);
+    setWorkHistoryData(initialWorkHistoryData);
+  };
 
-    // Xóa đề xuất tuyển dụng đã chọn
-    const handleRemoveRecruitment = () => {
-        setSelectedRecruitment(null);
-    };
+  const validateWorkHistory = () => {
+    const errors = [];
+    if (!workHistoryData.fromDate) errors.push('Từ ngày là bắt buộc');
+    if (!workHistoryData.toDate) errors.push('Đến ngày là bắt buộc');
 
+    if (workHistoryData.fromDate && workHistoryData.toDate) {
 
-    // ✅ SỬA: Xử lý khi submit form - chỉ chuẩn bị payload và gọi onSave
-    const handleSubmit = async (e) => {
-        e.preventDefault(); // Ngăn chặn hành vi submit mặc định của form
-        
-        if (!selectedRecruitment) {
-            showNotification('Vui lòng chọn một đề xuất tuyển dụng.', 'warning');
-            return;
+      const from = new Date(workHistoryData.fromDate);
+      from.setHours(0, 0, 0, 0);
+      const to = new Date(workHistoryData.toDate);
+      to.setHours(0, 0, 0, 0);
+
+      if (to < from) errors.push('Đến ngày phải lớn hơn hoặc bằng Từ ngày');
+      // ✅ VALIDATION  - Kiểm tra khoảng ngày
+      if (selectedRecruitment) {
+        const start = new Date(selectedRecruitment.fromDate);
+        const end = new Date(selectedRecruitment.toDate);
+
+        if (from < start || to > end) {
+          errors.push(`Khoảng thời gian phải nằm trong (${selectedRecruitment.fromDateFormatted} - ${selectedRecruitment.toDateFormatted})`);
         }
+      }
+    }
+    // Validation mức lương/giờ
+    if (workHistoryData.hourlyRate && (isNaN(workHistoryData.hourlyRate) || parseFloat(workHistoryData.hourlyRate) < 0)) {
+      errors.push('Mức lương/giờ phải là số và không âm');
+    }
+    return errors;
+  };
 
+  const handleSubmit = async e => {
+    e.preventDefault();
+    if (!selectedRecruitment) {
+      showNotification('Vui lòng chọn một đề xuất tuyển dụng.', 'warning');
+      return;
+    }
+    const errors = validateWorkHistory();
+    if (errors.length) {
+      showNotification(errors.join('. '), 'warning');
+      return;
+    }
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-        setIsSubmitting(true); // Bắt đầu trạng thái đang submit
-
-
-        const payload = {
-            ...formData,
-            hourlyRate: parseFloat(formData.hourlyRate) || 0,
-            workHistoryData: [{
-                requestNo: selectedRecruitment.requestNo
-            }]
-        };
-
-
-        try {
-            // ✅ SỬA LỚN: KHÔNG GỌI API TRỰC TIẾP Ở ĐÂY NỮA
-            // const response = await employeeService.create(payload); 
-            
-            // Gọi hàm onSave được truyền từ component cha
-            // Hàm onSave sẽ chịu trách nhiệm gọi API và trả về kết quả thành công/thất bại
-            if (onSave && typeof onSave === 'function') {
-                const success = await onSave(payload); // onSave sẽ là handleAddEmployee từ parent
-                if (success) { // Nếu hàm onSave báo là thành công
-                    showNotification('Thêm nhân viên mới thành công!', 'success');
-                    resetForm(); // Reset form sau khi thành công
-                } else {
-                    // Nếu onSave trả về false (do lỗi từ API hoặc logic của parent)
-                    showNotification('Có lỗi xảy ra, không thể thêm nhân viên.', 'error');
-                }
-            }
-        } catch (error) {
-            // Lỗi từ onSave (nếu onSave ném lỗi) sẽ được bắt ở đây
-            const errorMessage = error.response?.data?.message || 'Lỗi hệ thống, vui lòng thử lại.';
-            showNotification(errorMessage, 'error');
-            console.error('❌ Lỗi khi thêm nhân viên:', error);
-        } finally {
-            setIsSubmitting(false); // Kết thúc trạng thái đang submit
-        }
+    const payload = {
+      ...formData,
+      workHistoryData: [{
+        requestNo: selectedRecruitment.requestNo,
+        fromDate: workHistoryData.fromDate,
+        toDate: workHistoryData.toDate,
+        hourlyRate: workHistoryData.hourlyRate
+          ? parseFloat(workHistoryData.hourlyRate)
+          : undefined
+      }]
     };
-    
-    // Tự động focus vào trường họ tên khi component được mount lần đầu
-    useEffect(() => {
-        fullNameInputRef.current?.focus();
-    }, []);
 
+    try {
+      const success = await onSave(payload);
+      if (success) {
+        showNotification('Thêm nhân viên thành công!', 'success');
+        resetForm();
+      } else {
+        showNotification('Thêm nhân viên thất bại.', 'error');
+      }
+    } catch (err) {
+      showNotification(err.response?.data?.message || 'Lỗi hệ thống', 'error');
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
-    // ✅ SỬA: Sử dụng loading state từ props hoặc internal state
-    // currentLoading sẽ là true nếu parent đang loading HOẶC form này đang trong quá trình submit
-    const currentLoading = externalLoading || isSubmitting;
+  useEffect(() => {
+    fullNameInputRef.current?.focus();
+  }, []);
 
+  const loading = externalLoading || isSubmitting;
 
-    return (
-        <div className="card">
-            <div className="card-header">
-                <h4 className="card-title mb-0">Thêm Nhân viên Mới</h4>
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h4 className="card-title mb-0">Thêm Nhân viên Mới</h4>
+      </div>
+      <div className="card-body">
+        <form onSubmit={handleSubmit}>
+          {/* Thông tin Cá nhân */}
+          <h5 className="mb-3">Thông tin Cá nhân</h5>
+          <div className="row">
+            <div className="col-md-6 mb-3">
+              <label htmlFor="fullName" className="form-label">
+                Họ tên <span className="text-danger">*</span>
+              </label>
+              <input
+                type="text"
+                id="fullName"
+                name="fullName"
+                className="form-control"
+                placeholder="Nhập họ tên"
+                value={formData.fullName}
+                onChange={handleChange}
+                required
+                disabled={loading}
+                ref={fullNameInputRef}
+              />
             </div>
-            <div className="card-body">
-                <form onSubmit={handleSubmit}>
-                    {/* PHẦN THÔNG TIN CÁ NHÂN */}
-                    <h5 className="mb-3">Thông tin Cá nhân</h5>
-                    <div className="row">
-                        <div className="col-md-6 mb-3">
-                            <label htmlFor="fullName" className="form-label">
-                                Họ tên <span className="text-danger">*</span>
-                            </label>
-                            <input 
-                                type="text" 
-                                className="form-control" 
-                                id="fullName" 
-                                name="fullName" 
-                                value={formData.fullName} 
-                                onChange={handleChange} 
-                                required 
-                                placeholder="Nhập họ tên đầy đủ"
-                                ref={fullNameInputRef}
-                                disabled={currentLoading} // Vô hiệu hóa khi đang tải hoặc submit
-                            />
-                        </div>
-                        <div className="col-md-6 mb-3">
-                            <label htmlFor="phoneNumber" className="form-label">
-                                Số điện thoại <span className="text-danger">*</span>
-                            </label>
-                            <input 
-                                type="tel" 
-                                className="form-control" 
-                                id="phoneNumber" 
-                                name="phoneNumber" 
-                                value={formData.phoneNumber} 
-                                onChange={handleChange} 
-                                required 
-                                placeholder="Ví dụ: 0123456789"
-                                disabled={currentLoading}
-                            />
-                        </div>
-                    </div>
-                    
-                    <div className="row">
-                        <div className="col-md-6 mb-3">
-                            <label htmlFor="gender" className="form-label">
-                                Giới tính <span className="text-danger">*</span>
-                            </label>
-                            <select 
-                                className="form-select" 
-                                id="gender" 
-                                name="gender" 
-                                value={formData.gender} 
-                                onChange={handleChange} 
-                                required
-                                disabled={currentLoading}
-                            >
-                                <option value="Nam">Nam</option>
-                                <option value="Nữ">Nữ</option>
-                            </select>
-                        </div>
-                        <div className="col-md-6 mb-3">
-                            <label htmlFor="hourlyRate" className="form-label">
-                                Mức lương/giờ (VNĐ) <span className="text-danger">*</span>
-                            </label>
-                            <input 
-                                type="number" 
-                                className="form-control" 
-                                id="hourlyRate" 
-                                name="hourlyRate" 
-                                value={formData.hourlyRate} 
-                                onChange={handleChange} 
-                                required 
-                                min="0" 
-                                step="1000"
-                                placeholder="Ví dụ: 50000"
-                                disabled={currentLoading}
-                            />
-                        </div>
-                    </div>
-
-
-                    {/* PHẦN THÔNG TIN NGÂN HÀNG */}
-                    <h5 className="mb-3 mt-4">Thông tin Ngân hàng</h5>
-                    <div className="row">
-                        <div className="col-md-6 mb-3">
-                            <label htmlFor="bankAccount" className="form-label">
-                                Số tài khoản <span className="text-danger">*</span>
-                            </label>
-                            <input 
-                                type="text" 
-                                className="form-control" 
-                                id="bankAccount" 
-                                name="bankAccount" 
-                                value={formData.bankAccount} 
-                                onChange={handleChange} 
-                                required 
-                                placeholder="Nhập số tài khoản ngân hàng"
-                                disabled={currentLoading}
-                            />
-                        </div>
-                        <div className="col-md-6 mb-3">
-                            <label htmlFor="bankName" className="form-label">
-                                Tên ngân hàng <span className="text-danger">*</span>
-                            </label>
-                            <input 
-                                type="text" 
-                                className="form-control" 
-                                id="bankName" 
-                                name="bankName" 
-                                value={formData.bankName} 
-                                onChange={handleChange} 
-                                required 
-                                placeholder="Ví dụ: Vietcombank, Techcombank..."
-                                disabled={currentLoading}
-                            />
-                        </div>
-                    </div>
-
-
-                    <hr className="my-4" />
-                    
-                    {/* PHẦN ĐỀ XUẤT TUYỂN DỤNG */}
-                    <h5 className="mb-3">Thông tin Tuyển dụng</h5>
-                    
-                    {selectedRecruitment ? (
-                        <div className="alert alert-info d-flex justify-content-between align-items-center">
-                            <div>
-                                <strong>Đề xuất đã chọn:</strong> {selectedRecruitment.requestNo} <br />
-                                <small className="text-muted">
-                                    Phòng ban: {selectedRecruitment.department} - Vị trí: {selectedRecruitment.position || 'Chưa xác định'}
-                                </small>
-                            </div>
-                            <button 
-                                type="button" 
-                                className="btn-close" 
-                                onClick={handleRemoveRecruitment} 
-                                aria-label="Xóa"
-                                title="Xóa đề xuất đã chọn"
-                                disabled={currentLoading}
-                            ></button>
-                        </div>
-                    ) : (
-                        <div className="alert alert-warning">
-                            <i className="fas fa-exclamation-triangle me-2"></i>
-                            Chưa chọn đề xuất tuyển dụng.
-                        </div>
-                    )}
-
-
-                    <button
-                        type="button"
-                        className={`btn ${selectedRecruitment ? 'btn-secondary' : 'btn-primary'}`}
-                        onClick={() => setIsModalOpen(true)}
-                        disabled={!!selectedRecruitment || currentLoading}
-                    >
-                        <i className="fas fa-search me-2"></i>
-                        {selectedRecruitment ? 'Thay đổi Đề xuất' : 'Chọn Đề xuất Tuyển dụng'}
-                    </button>
-                    
-                    {/* CÁC NÚT HÀNH ĐỘNG */}
-                    <div className="mt-4 d-flex justify-content-end gap-2">
-                        {/* Nút "Quay về danh sách" đã được xóa theo yêu cầu */}
-                        <button 
-                            type="button" 
-                            className="btn btn-outline-secondary" 
-                            onClick={resetForm}
-                            disabled={currentLoading}
-                        >
-                            <i className="fas fa-sync-alt me-2"></i>
-                            Làm mới Form
-                        </button>
-                        <button type="submit" className="btn btn-primary" disabled={currentLoading}>
-                            {currentLoading ? (
-                                <>
-                                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                    Đang lưu...
-                                </>
-                            ) : (
-                                <>
-                                    <i className="fas fa-save me-2"></i>
-                                    Lưu Nhân viên
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </form>
+            <div className="col-md-6 mb-3">
+              <label htmlFor="phoneNumber" className="form-label">
+                Số điện thoại <span className="text-danger">*</span>
+              </label>
+              <input
+                type="tel"
+                id="phoneNumber"
+                name="phoneNumber"
+                className="form-control"
+                placeholder="Ví dụ: 0123456789"
+                value={formData.phoneNumber}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              />
             </div>
+          </div>
+          <div className="row">
+            <div className="col-md-6 mb-3">
+              <label htmlFor="gender" className="form-label">
+                Giới tính <span className="text-danger">*</span>
+              </label>
+              <select
+                id="gender"
+                name="gender"
+                className="form-select"
+                value={formData.gender}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              >
+                <option value="Nam">Nam</option>
+                <option value="Nữ">Nữ</option>
+              </select>
+            </div>
+            {/* Phần Mức lương/giờ mặc định đã được loại bỏ */}
+          </div>
 
+          {/* Thông tin Ngân hàng */}
+          <h5 className="mb-3 mt-4">Thông tin Ngân hàng</h5>
+          <div className="row">
+            <div className="col-md-6 mb-3">
+              <label htmlFor="bankAccount" className="form-label">
+                Số tài khoản <span className="text-danger">*</span>
+              </label>
+              <input
+                type="text"
+                id="bankAccount"
+                name="bankAccount"
+                className="form-control"
+                placeholder="Nhập số tài khoản"
+                value={formData.bankAccount}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              />
+            </div>
+            <div className="col-md-6 mb-3">
+              <label htmlFor="bankName" className="form-label">
+                Tên ngân hàng <span className="text-danger">*</span>
+              </label>
+              <input
+                type="text"
+                id="bankName"
+                name="bankName"
+                className="form-control"
+                placeholder="Ví dụ: Vietcombank"
+                value={formData.bankName}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              />
+            </div>
+          </div>
 
-            {/* MODAL CHỌN ĐỀ XUẤT */}
-            <RecruitmentModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                onRecruitmentSelected={handleSelectRecruitment}
-            />
-        </div>
-    );
+          <hr className="my-4" />
+
+          {/* Thông tin Tuyển dụng */}
+          <h5 className="mb-3">Thông tin Tuyển dụng</h5>
+          {selectedRecruitment ? (
+            <div className="alert alert-info d-flex justify-content-between align-items-center">
+              <div>
+                <strong>Đề xuất:</strong> {selectedRecruitment.requestNo}<br/>
+                <small className="text-muted">
+                  {selectedRecruitment.department} – {selectedRecruitment.position}
+                </small><br/>
+                <small className="text-info">
+                  {selectedRecruitment.fromDateFormatted} – {selectedRecruitment.toDateFormatted}
+                </small>
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                onClick={handleRemoveRecruitment}
+                disabled={loading}
+              />
+            </div>
+          ) : (
+            <div className="alert alert-warning">
+              <i className="fas fa-exclamation-triangle me-2"></i>
+              Chưa chọn đề xuất tuyển dụng.
+            </div>
+          )}
+
+          <button
+            type="button"
+            className={`btn ${selectedRecruitment ? 'btn-secondary' : 'btn-primary'} mb-4`}
+            onClick={() => setIsModalOpen(true)}
+            disabled={!!selectedRecruitment || loading}
+          >
+            <i className="fas fa-search me-2"></i>
+            {selectedRecruitment ? 'Thay đổi Đề xuất' : 'Chọn Đề xuất Tuyển dụng'}
+          </button>
+
+          {/* Chi tiết Thời gian & Lương */}
+          {selectedRecruitment && (
+            <>
+              <h6 className="mb-3">Chi tiết Thời gian &amp; Lương</h6>
+              <div className="row mb-3">
+                <div className="col-md-6">
+                  <label htmlFor="fromDate" className="form-label">
+                    Từ ngày <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="fromDate"
+                    name="fromDate"
+                    className="form-control"
+                    value={workHistoryData.fromDate}
+                    onChange={handleWorkHistoryChange}
+                    required
+                    disabled={loading}
+                  />
+                </div>
+                <div className="col-md-6">
+                  <label htmlFor="toDate" className="form-label">
+                    Đến ngày <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="toDate"
+                    name="toDate"
+                    className="form-control"
+                    value={workHistoryData.toDate}
+                    onChange={handleWorkHistoryChange}
+                    required
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <label htmlFor="workHistoryHourlyRate" className="form-label">
+                  Mức lương/giờ (VNĐ)
+                </label>
+                <input
+                  type="number"
+                  id="workHistoryHourlyRate"
+                  name="hourlyRate"
+                  className="form-control"
+                  placeholder="Ví dụ: 30000"
+                  min="0"
+                  step="1000"
+                  value={workHistoryData.hourlyRate}
+                  onChange={handleWorkHistoryChange}
+                  disabled={loading}
+                />
+                <small className="form-text text-muted">
+                  Để trống nếu dùng mức lương mặc định, nhập số để ghi đè.
+                </small>
+              </div>
+
+              { (workHistoryData.fromDate || workHistoryData.toDate) && (
+                <div className="alert alert-info small">
+                  <i className="fas fa-info-circle me-2"></i>
+                  Khoảng thời gian phải nằm trong ({selectedRecruitment.fromDateFormatted} – {selectedRecruitment.toDateFormatted}).
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Nút hành động cuối */}
+          <div className="mt-4 d-flex justify-content-end gap-2">
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={resetForm}
+              disabled={loading}
+            >
+              <i className="fas fa-sync-alt me-2"></i>Làm mới Form
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading || !selectedRecruitment || !workHistoryData.fromDate || !workHistoryData.toDate}
+            >
+              {loading ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                  Đang lưu...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-save me-2"></i>
+                  Lưu Nhân viên
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Modal chọn Đề xuất Tuyển dụng */}
+      <RecruitmentModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onRecruitmentSelected={handleSelectRecruitment}
+      />
+    </div>
+  );
 };
-
 
 export default EmployeeAddForm;
 
@@ -6796,14 +7346,20 @@ export default EmployeeAddForm;
 ==================== File: .\src\components\employee\EmployeeEditModal.jsx ====================
 
 import React, { useState, useEffect } from 'react';
-// ✅ SỬA: Loại bỏ hoàn toàn dòng import không cần thiết và gây lỗi này.
-// import { employeeService } from '../../services/employee.js';
 import { useNotification } from '../../hooks/useNotification';
 import Modal from '../common/Modal.jsx';
 import { ButtonLoading } from '../common/Loading.jsx';
 
 const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
-  const [formData, setFormData] = useState({});
+    const [formData, setFormData] = useState({
+    fullName: '',
+    phoneNumber: '',
+    gender: 'Nam',
+    bankAccount: '',
+    bankName: '',
+    status: 'active',
+  });
+  //const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
   const { showNotification } = useNotification();
 
@@ -6814,7 +7370,6 @@ const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
         fullName: employee.fullName || '',
         phoneNumber: employee.phoneNumber || '',
         gender: employee.gender || 'Nam',
-        hourlyRate: employee.hourlyRate || 0,
         bankAccount: employee.bankAccount || '',
         bankName: employee.bankName || '',
         status: employee.status || 'active',
@@ -6831,15 +7386,14 @@ const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Gọi hàm onSave được truyền từ EmployeeManagementPage.
-      // Hàm này sẽ gọi hook useEmployees để thực sự cập nhật dữ liệu.
+      // Gọi hàm onSave được truyền từ EmployeeManagementPage. Hàm này sẽ gọi hook useEmployees để thực sự cập nhật dữ liệu.
       const success = await onSave(formData);
-      if (success) {
-        // Component cha (EmployeeManagementPage) sẽ tự xử lý việc đóng modal.
-      } else {
-        // Nếu onSave trả về false, hiển thị thông báo lỗi chung.
-        showNotification('Cập nhật thất bại. Vui lòng thử lại.', 'error');
-      }
+      // if (success) {
+      //   // Component cha (EmployeeManagementPage) sẽ tự xử lý việc đóng modal.
+      // } else {
+      //   // Nếu onSave trả về false, hiển thị thông báo lỗi chung.
+      //   showNotification('Cập nhật thất bại. Vui lòng thử lại.', 'error');
+      // }
     } catch (error) {
       console.error('Lỗi khi submit form sửa nhân viên:', error);
       showNotification(error.message || 'Lỗi hệ thống khi cập nhật.', 'error');
@@ -6875,10 +7429,10 @@ const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
               <option value="Nữ">Nữ</option>
             </select>
           </div>
-          <div className="col-md-6 mb-3">
+          {/* <div className="col-md-6 mb-3">
             <label className="form-label">Lương/giờ</label>
             <input type="number" name="hourlyRate" value={formData.hourlyRate} onChange={handleChange} className="form-control" required min="0"/>
-          </div>
+          </div> */}
         </div>
         <div className="row">
           <div className="col-md-6 mb-3">
@@ -7000,7 +7554,13 @@ export default EmployeeForm;
 import React from 'react';
 import EmployeeTable from './EmployeeTable';
 
-const EmployeeList = ({ employees, onEdit, onDelete, onAddWorkHistory, onViewWorkHistory }) => {
+const EmployeeList = ({ 
+  employees, 
+  onEdit, 
+  onDelete, 
+  onAddWorkHistory, 
+  onManageWorkHistory // ✅ THAY ĐỔI: Đổi tên từ onViewWorkHistory thành onManageWorkHistory
+}) => {
   return (
     <div className="employee-list">
       <div className="mb-3">
@@ -7012,9 +7572,8 @@ const EmployeeList = ({ employees, onEdit, onDelete, onAddWorkHistory, onViewWor
         employees={employees}
         onEdit={onEdit}
         onDelete={onDelete}
-        // ✅ THÊM LẠI: Truyền tiếp props xuống EmployeeTable
         onAddWorkHistory={onAddWorkHistory}
-        onViewWorkHistory={onViewWorkHistory}
+        onManageWorkHistory={onManageWorkHistory} // ✅ THAY ĐỔI: Truyền prop mới xuống EmployeeTable
       />
     </div>
   );
@@ -7034,7 +7593,7 @@ const EmployeeTable = ({
   onEdit, 
   onDelete, 
   onAddWorkHistory, 
-  onViewWorkHistory 
+  onManageWorkHistory
 }) => {
 
   // ✅ Giữ lại phần hiển thị thông báo thân thiện khi không có dữ liệu từ code của bạn.
@@ -7056,28 +7615,19 @@ const EmployeeTable = ({
             <th>Họ tên</th>
             <th>Số ĐT</th>
             <th>Giới tính</th>
-            <th>Lương/giờ</th>
             <th>Tài khoản</th>
             <th>Ngân hàng</th>
             <th>Trạng thái</th>
-            <th className="text-center" style={{ minWidth: '160px' }}>Thao tác</th>
+            <th className="text-center" style={{ minWidth: '180px' }}>Thao tác</th> {/* ✅ TĂNG chiều rộng cho thêm nút */}
           </tr>
         </thead>
         <tbody>
-          {/* 
-            ✅ Không cần 'safeEmployee' nữa. 
-            Component cha đảm bảo dữ liệu truyền vào đã sạch.
-          */}
           {employees.map((employee) => (
             <tr key={employee.id}>
               <td>{employee.employeeId || 'N/A'}</td>
               <td>{employee.fullName || 'N/A'}</td>
               <td>{employee.phoneNumber || 'N/A'}</td>
               <td>{employee.gender || 'N/A'}</td>
-              <td>
-                {/* ✅ Giữ lại định dạng tiền tệ, đây là logic hiển thị hợp lệ. */}
-                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(employee.hourlyRate || 0)}
-              </td>
               <td>{employee.bankAccount || 'N/A'}</td>
               <td>{employee.bankName || 'N/A'}</td>
               <td>
@@ -7087,42 +7637,44 @@ const EmployeeTable = ({
               </td>
               <td className="text-center">
                 <div className="btn-group" role="group">
-                  {/* Nút Thêm Work History */}
+                  {/* ✅ GIỮ LẠI: Nút Thêm Work History */}
                   {onAddWorkHistory && (
                     <button
                       className="btn btn-sm btn-success"
                       title="Thêm Lịch sử công việc"
-                      onClick={() => onAddWorkHistory(employee)} // ✅ Truyền cả object 'employee'
+                      onClick={() => onAddWorkHistory(employee)}
                     >
                       <i className="fas fa-plus-circle"></i>
                     </button>
                   )}
-                  {/* Nút Xem Work History */}
-                  {onViewWorkHistory && (
+                  
+                  {/* ✅ THAY ĐỔI: Nút Quản lý Work History (thay thế nút Xem) */}
+                  {onManageWorkHistory && (
                     <button
-                      className="btn btn-sm btn-info"
-                      title="Xem Lịch sử công việc"
-                      onClick={() => onViewWorkHistory(employee)} // ✅ Truyền cả object 'employee'
+                      className="btn btn-sm btn-primary" // ✅ THAY ĐỔI: Đổi màu từ info sang primary
+                      title="Quản lý Lịch sử công việc" // ✅ THAY ĐỔI: Đổi tooltip
+                      onClick={() => onManageWorkHistory(employee)}
                     >
-                      <i className="fas fa-history"></i>
+                      <i className="fas fa-cogs"></i> {/* ✅ THAY ĐỔI: Đổi icon từ history sang cogs */}
                     </button>
                   )}
-                  {/* Nút Sửa */}
+                  
+                  {/* ✅ GIỮ LẠI: Nút Sửa */}
                   {onEdit && (
                      <button
-                      className="btn btn-sm btn-primary"
+                      className="btn btn-sm btn-warning" // ✅ THAY ĐỔI: Đổi màu từ primary sang warning để phân biệt
                       title="Sửa thông tin"
-                      onClick={() => onEdit(employee)} // ✅ Truyền cả object 'employee'
+                      onClick={() => onEdit(employee)}
                     >
                       <i className="fas fa-pencil-alt"></i>
                     </button>
                   )}
-                  {/* Nút Xóa */}
+                  
+                  {/* ✅ GIỮ LẠI: Nút Xóa */}
                   {onDelete && (
                     <button
                       className="btn btn-sm btn-danger"
                       title="Xóa nhân viên"
-                      // ✅ Giữ lại logic confirm ở đây là hợp lý cho hành động nguy hiểm.
                       onClick={() => {
                         if (window.confirm(`Bạn có chắc muốn xóa nhân viên "${employee.fullName}"?`)) {
                           onDelete(employee.id);
@@ -7382,34 +7934,49 @@ export default RecruitmentModal;
 ==================== File: .\src\components\employee\WorkHistoryModal.jsx ====================
 
 import React, { useState, useEffect } from 'react';
-// ✅ SỬA 1: Import đúng tên hàm là 'getWorkHistory'
-import { getWorkHistory } from '../../services/employee.js';
+import { getWorkHistory, addWorkHistory, updateWorkHistory, deleteWorkHistory } from '../../services/employee.js';
 import { useNotification } from '../../hooks/useNotification';
 import Modal from '../common/Modal.jsx';
 import Loading from '../common/Loading.jsx';
+import RecruitmentModal from './RecruitmentModal.jsx';
+import { ButtonLoading } from '../common/Loading.jsx';
 
-const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHistory }) => {
+const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHistory,onDataChanged  }) => {
+  // ===== STATE MANAGEMENT =====
   const [workHistoryData, setWorkHistoryData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState('view'); // 'view' | 'add' | 'edit'
+  const [selectedWorkHistory, setSelectedWorkHistory] = useState(null);
+  const [isRecruitmentModalOpen, setIsRecruitmentModalOpen] = useState(false);
+  const [selectedRecruitment, setSelectedRecruitment] = useState(null);
+  const [saving, setSaving] = useState(false);
+  
+  // Form data cho add/edit
+  const [formData, setFormData] = useState({
+    fromDate: '',
+    toDate: '',
+    hourlyRate: ''
+  });
+
   const { showNotification } = useNotification();
 
+  // ===== EFFECTS =====
   useEffect(() => {
-    // Nếu modal mở và có employeeId, và không có dữ liệu lịch sử được truyền sẵn,
-    // thì mới gọi API để lấy dữ liệu.
     if (isOpen && employeeId && !workHistory) {
       fetchWorkHistory();
     } else if (workHistory) {
-      // Nếu có dữ liệu được truyền sẵn, sử dụng nó luôn.
       setWorkHistoryData(workHistory);
     }
+    // Reset về view mode khi mở modal
+    setMode('view');
+    resetForm();
   }, [isOpen, employeeId, workHistory]);
 
+  // ===== DATA FETCHING =====
   const fetchWorkHistory = async () => {
     setLoading(true);
     try {
-      // ✅ SỬA 2: Gọi đúng hàm đã import
       const response = await getWorkHistory(employeeId);
-      // Hàm getWorkHistory đã được thiết kế để luôn trả về một mảng
       setWorkHistoryData(response || []);
     } catch (error) {
       console.error('Lỗi khi tải lịch sử công việc:', error);
@@ -7419,61 +7986,554 @@ const WorkHistoryModal = ({ isOpen, onClose, employeeId, employeeName, workHisto
     }
   };
 
+  // ===== FORM HANDLING =====
+  const resetForm = () => {
+    setFormData({
+      fromDate: '',
+      toDate: '',
+      hourlyRate: ''
+    });
+    setSelectedRecruitment(null);
+    setSelectedWorkHistory(null);
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // ===== MODE SWITCHING =====
+  const handleAddNew = () => {
+    resetForm();
+    setMode('add');
+  };
+
+  const handleEdit = (item) => {
+    setSelectedWorkHistory(item);
+    setFormData({
+      fromDate: item.fromDate || '',
+      toDate: item.toDate || '',
+      hourlyRate: item.hourlyRate || ''
+    });
+    // Tạo mock recruitment object từ requestNo
+    setSelectedRecruitment({
+      requestNo: item.requestNo,
+      position: 'N/A',
+      department: 'N/A'
+    });
+    setMode('edit');
+  };
+
+  const handleCancel = () => {
+    resetForm();
+    setMode('view');
+  };
+
+  // ===== RECRUITMENT SELECTION =====
+  const handleRecruitmentSelect = (recruitment) => {
+    setSelectedRecruitment(recruitment);
+    setIsRecruitmentModalOpen(false);
+  };
+
+  // ===== VALIDATION =====
+  const validateForm = () => {
+    const errors = [];
+
+    if (mode === 'add' && !selectedRecruitment) {
+      errors.push('Vui lòng chọn một đề xuất tuyển dụng.');
+    }
+
+    if (!formData.fromDate) {
+      errors.push('Từ ngày là bắt buộc.');
+    }
+
+    if (!formData.toDate) {
+      errors.push('Đến ngày là bắt buộc.');
+    }
+
+    if (formData.fromDate && formData.toDate) {
+      const fromDate = new Date(formData.fromDate);
+      const toDate = new Date(formData.toDate);
+      
+      if (toDate < fromDate) {
+        errors.push('Đến ngày phải lớn hơn hoặc bằng Từ ngày.');
+      }
+    }
+
+    if (formData.hourlyRate && (isNaN(formData.hourlyRate) || parseFloat(formData.hourlyRate) < 0)) {
+      errors.push('Mức lương/giờ phải là số và không được âm.');
+    }
+
+    return errors;
+  };
+
+  // ===== CRUD OPERATIONS =====
+  const handleSave = async () => {
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0) {
+      showNotification(validationErrors.join(' '), 'warning');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        employeeId: employeeId,
+        requestNo: selectedRecruitment?.requestNo || selectedWorkHistory?.requestNo,
+        fromDate: formData.fromDate,
+        toDate: formData.toDate,
+        hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : undefined,
+      };
+
+      let response;
+      if (mode === 'add') {
+        response = await addWorkHistory(payload);
+      } else if (mode === 'edit') {
+        response = await updateWorkHistory(selectedWorkHistory.id, payload);
+      }
+
+      if (response.success) {
+        showNotification(
+          mode === 'add' ? 'Thêm lịch sử công việc thành công!' : 'Cập nhật lịch sử công việc thành công!', 
+          'success'
+        );
+        await fetchWorkHistory(); // Refresh data
+        if (onDataChanged) {
+          onDataChanged();
+        }
+        setMode('view');
+        resetForm();
+      } else {
+        showNotification(response.message || 'Có lỗi xảy ra', 'error');
+      }
+    } catch (error) {
+      console.error('Lỗi khi lưu:', error);
+      showNotification(error.message || 'Lỗi hệ thống', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Bạn có chắc muốn xóa lịch sử công việc "${safeRenderRequestNo(item.requestNo)}"?`)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await deleteWorkHistory(item.id);
+      if (response.success) {
+        showNotification('Xóa lịch sử công việc thành công!', 'success');
+        await fetchWorkHistory(); // Refresh data
+        if (onDataChanged) {
+          onDataChanged();
+        }
+      } else {
+        showNotification(response.message || 'Có lỗi xảy ra khi xóa', 'error');
+      }
+    } catch (error) {
+      console.error('Lỗi khi xóa:', error);
+      showNotification(error.message || 'Lỗi hệ thống', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ===== HELPER FUNCTIONS =====
+  const safeRender = (value, fallback = 'N/A') => {
+    if (value === null || value === undefined) return fallback;
+    
+    if (typeof value === 'object') {
+      if (value.text) return value.text;
+      if (value.link) return value.link;
+      if (Array.isArray(value) && value.length > 0) {
+        return safeRender(value[0]);
+      }
+      return JSON.stringify(value);
+    }
+    
+    return String(value);
+  };
+
+  // ✅ SỬA: Hàm riêng để xử lý requestNo (ưu tiên text)
+  const safeRenderRequestNo = (requestNo) => {
+    if (!requestNo) return 'N/A';
+    
+    if (typeof requestNo === 'object') {
+      // Ưu tiên text trước, sau đó mới đến link
+      if (requestNo.text) return requestNo.text;
+      if (requestNo.link) return requestNo.link;
+      if (Array.isArray(requestNo) && requestNo.length > 0) {
+        return safeRenderRequestNo(requestNo[0]);
+      }
+      return JSON.stringify(requestNo);
+    }
+    
+    return String(requestNo);
+  };
+
+  // ✅ SỬA: Hàm format ngày để xử lý array timestamp
+  const formatDate = (dateValue) => {
+    if (!dateValue) return 'N/A';
+    
+    try {
+      let timestamp = dateValue;
+      
+      // ✅ SỬA: Xử lý array chứa timestamp
+      if (Array.isArray(dateValue) && dateValue.length > 0) {
+        timestamp = dateValue[0];
+      }
+      
+      // Chuyển đổi timestamp thành Date object
+      const date = new Date(timestamp);
+      
+      if (isNaN(date.getTime())) return 'N/A';
+      
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'N/A';
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    if (!amount || amount === 0) return 'N/A';
+    try {
+      return new Intl.NumberFormat('vi-VN', { 
+        style: 'currency', 
+        currency: 'VND' 
+      }).format(amount);
+    } catch (error) {
+      return `${amount} VNĐ`;
+    }
+  };
+
+  // ===== RENDER FUNCTIONS =====
+  const renderViewMode = () => (
+    <div>
+      {/* Header Actions */}
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h6 className="mb-0">Danh sách lịch sử công việc</h6>
+        <div className="btn-group">
+          <button 
+            className="btn btn-primary btn-sm" 
+            onClick={handleAddNew}
+            disabled={loading || saving}
+          >
+            <i className="fas fa-plus me-2"></i>
+            Thêm mới
+          </button>
+          <button 
+            className="btn btn-outline-secondary btn-sm" 
+            onClick={fetchWorkHistory}
+            disabled={loading || saving}
+          >
+            <i className={`fas fa-sync-alt me-2 ${loading ? 'fa-spin' : ''}`}></i>
+            Làm mới
+          </button>
+        </div>
+      </div>
+
+      {workHistoryData.length === 0 ? (
+        <div className="text-center py-4">
+          <i className="fas fa-history fa-3x text-muted mb-3"></i>
+          <p className="text-muted">Nhân viên này chưa có lịch sử làm việc.</p>
+          <button className="btn btn-primary" onClick={handleAddNew}>
+            <i className="fas fa-plus me-2"></i>
+            Thêm lịch sử đầu tiên
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="table-responsive">
+            <table className="table table-striped table-hover">
+              <thead className="table-dark">
+                <tr>
+                  <th>Request No.</th>
+                  <th>Từ ngày</th>
+                  <th>Đến ngày</th>
+                  <th>Mức lương/giờ</th>
+                  {/* ✅ BỎ: Cột "Thời gian tạo" */}
+                  <th className="text-center">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workHistoryData.map((item, index) => (
+                  <tr key={item.id || index}>
+                    <td>
+                      <span className="badge bg-primary fs-6">
+                        {safeRenderRequestNo(item.requestNo)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="text-info">
+                        {formatDate(item.fromDate)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="text-info">
+                        {formatDate(item.toDate)}
+                      </span>
+                    </td>
+                    <td>
+                      {item.hourlyRate ? (
+                        <span className="badge bg-success">
+                          {formatCurrency(item.hourlyRate)}
+                        </span>
+                      ) : (
+                        <span className="text-muted">Mặc định</span>
+                      )}
+                    </td>
+                    {/* ✅ BỎ: Cột "Thời gian tạo" */}
+                    <td className="text-center">
+                      <div className="btn-group" role="group">
+                        <button
+                          className="btn btn-sm btn-warning"
+                          title="Sửa"
+                          onClick={() => handleEdit(item)}
+                          disabled={saving}
+                        >
+                          <i className="fas fa-edit"></i>
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          title="Xóa"
+                          onClick={() => handleDelete(item)}
+                          disabled={saving}
+                        >
+                          <i className="fas fa-trash"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ✅ BỎ: Phần thống kê tổng quan */}
+        </>
+      )}
+    </div>
+  );
+
+  const renderFormMode = () => (
+    <div>
+      {/* Header */}
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h6 className="mb-0">
+          {mode === 'add' ? 'Thêm lịch sử công việc mới' : 'Chỉnh sửa lịch sử công việc'}
+        </h6>
+        <button 
+          className="btn btn-outline-secondary btn-sm" 
+          onClick={handleCancel}
+          disabled={saving}
+        >
+          <i className="fas fa-arrow-left me-2"></i>
+          Quay lại
+        </button>
+      </div>
+
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
+        {/* Employee ID (read-only) */}
+        <div className="mb-3">
+          <label className="form-label">Mã nhân viên</label>
+          <input
+            type="text"
+            className="form-control"
+            value={employeeId}
+            disabled
+          />
+        </div>
+
+        {/* Recruitment Selection - chỉ hiện khi add */}
+        {mode === 'add' && (
+          <div className="mb-4">
+            <label className="form-label d-block">
+              Đề xuất tuyển dụng <span className="text-danger">*</span>
+            </label>
+            
+            {selectedRecruitment ? (
+              <div className="card mt-2 border-success bg-light">
+                <div className="card-body p-2">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <div>
+                      <strong className="d-block">Mã ĐX: {selectedRecruitment.requestNo}</strong>
+                      <small className="text-muted">
+                        Vị trí: {selectedRecruitment.position} • Phòng ban: {selectedRecruitment.department}
+                      </small>
+                    </div>
+                    <div className="d-flex align-items-center gap-1">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary border-0"
+                        title="Thay đổi lựa chọn"
+                        onClick={() => setIsRecruitmentModalOpen(true)}
+                        disabled={saving}
+                      >
+                        <i className="fas fa-pencil-alt"></i>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-danger border-0"
+                        title="Bỏ chọn"
+                        onClick={() => setSelectedRecruitment(null)}
+                        disabled={saving}
+                      >
+                        <i className="fas fa-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="d-flex align-items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  className="btn btn-outline-primary"
+                  onClick={() => setIsRecruitmentModalOpen(true)}
+                  disabled={saving}
+                >
+                  <i className="fas fa-search me-2"></i>
+                  Chọn đề xuất
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Request No - chỉ hiển thị khi edit */}
+        {mode === 'edit' && (
+          <div className="mb-3">
+            <label className="form-label">Request No.</label>
+            <input
+              type="text"
+              className="form-control"
+              value={safeRenderRequestNo(selectedWorkHistory?.requestNo) || ''}
+              disabled
+            />
+          </div>
+        )}
+
+        {/* Date Range */}
+        <div className="row mb-3">
+          <div className="col-md-6">
+            <label className="form-label">
+              Từ ngày <span className="text-danger">*</span>
+            </label>
+            <input
+              type="date"
+              className="form-control"
+              name="fromDate"
+              value={formData.fromDate}
+              onChange={handleInputChange}
+              disabled={saving}
+            />
+          </div>
+          <div className="col-md-6">
+            <label className="form-label">
+              Đến ngày <span className="text-danger">*</span>
+            </label>
+            <input
+              type="date"
+              className="form-control"
+              name="toDate"
+              value={formData.toDate}
+              onChange={handleInputChange}
+              disabled={saving}
+            />
+          </div>
+        </div>
+
+        {/* Hourly Rate */}
+        <div className="mb-3">
+          <label className="form-label">
+            Mức lương/giờ (VNĐ)
+          </label>
+          <input
+            type="number"
+            className="form-control"
+            name="hourlyRate"
+            value={formData.hourlyRate}
+            onChange={handleInputChange}
+            min="0"
+            step="1000"
+            placeholder="Ví dụ: 50000"
+            disabled={saving}
+          />
+          <small className="form-text text-muted">
+            Để trống nếu sử dụng mức lương mặc định
+          </small>
+        </div>
+
+        {/* Form Actions */}
+        <div className="d-flex justify-content-end gap-2">
+          <button 
+            type="button"
+            className="btn btn-secondary" 
+            onClick={handleCancel}
+            disabled={saving}
+          >
+            Hủy
+          </button>
+          <ButtonLoading
+            type="submit"
+            className="btn btn-primary"
+            loading={saving}
+            disabled={saving || (mode === 'add' && !selectedRecruitment)}
+          >
+            {mode === 'add' ? 'Thêm mới' : 'Cập nhật'}
+          </ButtonLoading>
+        </div>
+      </form>
+    </div>
+  );
+
   if (!isOpen) return null;
 
   return (
-    <Modal 
-      isOpen={isOpen} 
-      onClose={onClose}
-      title={`Lịch sử làm việc - ${employeeName || employeeId}`}
-      size="lg"
-    >
-      {loading ? (
-        <Loading text="Đang tải lịch sử..." />
-      ) : (
-        <div>
-          {workHistoryData.length === 0 ? (
-            <div className="text-center py-4">
-              <i className="fas fa-history fa-3x text-muted mb-3"></i>
-              <p className="text-muted">Nhân viên này chưa có lịch sử làm việc.</p>
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="table table-striped table-hover">
-                <thead className="table-dark">
-                  <tr>
-                    <th>Request No.</th>
-                    <th>Mã nhân viên</th>
-                    <th>Thời gian tạo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workHistoryData.map((item, index) => (
-                    <tr key={item.id || index}>
-                      <td>
-                        <span className="badge bg-primary fs-6">{item.requestNo}</span>
-                      </td>
-                      <td>{item.employeeId}</td>
-                      <td>
-                        <small className="text-muted">
-                          {item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : 'N/A'}
-                        </small>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          
-          <div className="modal-footer border-0 px-0 pb-0 mt-3">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Đóng
-            </button>
-          </div>
-        </div>
+    <>
+      <Modal 
+        isOpen={isOpen} 
+        onClose={onClose}
+        title={`Quản lý lịch sử làm việc - ${employeeName || employeeId}`}
+        size="xl"
+      >
+        {loading ? (
+          <Loading text="Đang tải lịch sử..." />
+        ) : (
+          <>
+            {mode === 'view' ? renderViewMode() : renderFormMode()}
+            
+            {/* Footer - chỉ hiện khi ở view mode */}
+            {mode === 'view' && (
+              <div className="modal-footer border-0 px-0 pb-0 mt-3">
+                <button type="button" className="btn btn-secondary" onClick={onClose}>
+                  Đóng
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </Modal>
+
+      {/* Recruitment Selection Modal */}
+      {isRecruitmentModalOpen && (
+        <RecruitmentModal
+          isOpen={isRecruitmentModalOpen}
+          onClose={() => setIsRecruitmentModalOpen(false)}
+          onRecruitmentSelected={handleRecruitmentSelect}
+          selectedRecruitment={selectedRecruitment}
+          singleSelect={true}
+        />
       )}
-    </Modal>
+    </>
   );
 };
 
@@ -10111,9 +11171,9 @@ const EmployeeManagementPage = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
 
-  // ✅ THÊM: State cho các modal Work History
+  // ✅ CẬP NHẬT: State cho các modal Work History
   const [isAddWorkHistoryModalOpen, setAddWorkHistoryModalOpen] = useState(false);
-  const [isViewWorkHistoryModalOpen, setViewWorkHistoryModalOpen] = useState(false);
+  const [isManageWorkHistoryModalOpen, setManageWorkHistoryModalOpen] = useState(false); // ✅ THAY ĐỔI: Đổi tên từ isViewWorkHistoryModalOpen
   const [employeeForHistory, setEmployeeForHistory] = useState(null);
   
   // State cho tìm kiếm và bộ lọc
@@ -10161,20 +11221,28 @@ const EmployeeManagementPage = () => {
     return await addEmployee(formData);
   };
 
-  // ✅ THÊM: Các hàm xử lý cho Work History
+  // ✅ CẬP NHẬT: Các hàm xử lý cho Work History
   const handleOpenAddWorkHistoryModal = (employee) => {
     setEmployeeForHistory(employee);
     setAddWorkHistoryModalOpen(true);
   };
 
-  const handleOpenViewWorkHistoryModal = (employee) => {
+  // ✅ THAY ĐỔI: Đổi tên function
+  const handleOpenManageWorkHistoryModal = (employee) => {
     setEmployeeForHistory(employee);
-    setViewWorkHistoryModalOpen(true);
+    setManageWorkHistoryModalOpen(true); // ✅ THAY ĐỔI: Sử dụng state mới
   };
   
+
+  // ✅ THÊM: Hàm refresh data sau khi sửa work history
+  const handleWorkHistoryUpdated = async () => {
+    console.log('🔄 Work history updated, refreshing employee data...');
+    await refreshEmployees();
+  };
+
   const handleCloseModals = () => {
     setAddWorkHistoryModalOpen(false);
-    setViewWorkHistoryModalOpen(false);
+    setManageWorkHistoryModalOpen(false); // ✅ THAY ĐỔI: Cập nhật state mới
     setEmployeeForHistory(null);
   };
 
@@ -10183,6 +11251,13 @@ const EmployeeManagementPage = () => {
     refreshEmployees(); // Tải lại danh sách để cập nhật (nếu cần)
     handleCloseModals();
   };
+
+  const handleWorkHistoryDataChanged = () => {
+    console.log('Work history đã thay đổi, đang refresh...');
+    // Gọi lại API để fetch data nhân viên mới
+    refreshEmployees(); // Hoặc tên hàm fetch data của bạn
+  };
+
 
   return (
     <div className="container-fluid mt-4">
@@ -10231,9 +11306,9 @@ const EmployeeManagementPage = () => {
                   employees={filteredEmployees}
                   onEdit={handleOpenEditModal}
                   onDelete={handleDeleteEmployee}
-                  // ✅ THÊM LẠI: Truyền các hàm xử lý Work History
+                  // ✅ CẬP NHẬT: Truyền các hàm xử lý Work History với tên mới
                   onAddWorkHistory={handleOpenAddWorkHistoryModal}
-                  onViewWorkHistory={handleOpenViewWorkHistoryModal}
+                  onManageWorkHistory={handleOpenManageWorkHistoryModal} // ✅ THAY ĐỔI: Đổi tên prop
                 />
               )}
             </div>
@@ -10251,7 +11326,7 @@ const EmployeeManagementPage = () => {
         />
       )}
 
-      {/* ✅ THÊM: Render các modal cho Work History */}
+      {/* ✅ CẬP NHẬT: Render các modal cho Work History */}
       {isAddWorkHistoryModalOpen && employeeForHistory && (
         <AddWorkHistoryModal
           isOpen={isAddWorkHistoryModalOpen}
@@ -10261,11 +11336,15 @@ const EmployeeManagementPage = () => {
         />
       )}
       
-      {isViewWorkHistoryModalOpen && employeeForHistory && (
+      {/* ✅ THAY ĐỔI: Sử dụng WorkHistoryModal CRUD với state và props mới */}
+      {isManageWorkHistoryModalOpen && employeeForHistory && (
         <WorkHistoryModal
-          isOpen={isViewWorkHistoryModalOpen}
+          isOpen={isManageWorkHistoryModalOpen}
           onClose={handleCloseModals}
+          onDataUpdated={handleWorkHistoryUpdated}
           employeeId={employeeForHistory.employeeId}
+          employeeName={employeeForHistory.fullName}
+          onDataChanged={handleWorkHistoryDataChanged}
         />
       )}
     </div>
@@ -10836,7 +11915,7 @@ export default ApiClient;
 
 ==================== File: .\src\services\employee.js ====================
 
-// D:\Atino\extension\hr-management-system\src\services\employee.js
+// src/services/employee.js
 
 import { ApiClient } from './api.js';
 
@@ -10948,6 +12027,11 @@ export const updateEmployee = async (id, employeeData) => {
         console.log(`📡 SERVICE (FE): Gọi API cập nhật nhân viên ID: ${id}...`, employeeData);
         const response = await ApiClient.put(`/api/employees/${id}`, employeeData);
         
+        console.log('🔍 DEBUG: PUT Response Status:', response.status);
+        console.log('🔍 DEBUG: PUT Response Headers:', response.headers);
+        console.log('🔍 DEBUG: PUT Response Data:', response.data);
+        console.log('🔍 DEBUG: PUT Response Full:', response);
+
         console.log('🔍 UPDATE EMPLOYEE SERVICE: Response:', response);
         
         // Handle different response structures
@@ -11055,6 +12139,48 @@ export const addWorkHistory = async (workHistoryData) => {
         };
     } catch (error) {
         handleError(error, 'thêm lịch sử công việc');
+    }
+};
+
+// ✅ THÊM MỚI: Update work history
+export const updateWorkHistory = async (id, workHistoryData) => {
+    try {
+        console.log(`📡 SERVICE (FE): Gọi API cập nhật lịch sử công việc ID: ${id}...`, workHistoryData);
+        const response = await ApiClient.put(`/api/employees/work-history/${id}`, workHistoryData);
+        
+        console.log('🔍 UPDATE WORK HISTORY SERVICE: Response:', response);
+        
+        // Handle different response structures
+        if (typeof response.success !== 'undefined') {
+            return response;
+        }
+        
+        return {
+            success: true,
+            data: response,
+            message: 'Cập nhật lịch sử công việc thành công'
+        };
+        
+    } catch (error) {
+        handleError(error, 'cập nhật lịch sử công việc');
+    }
+};
+
+// ✅ THÊM MỚI: Delete work history
+export const deleteWorkHistory = async (id) => {
+    try {
+        console.log(`📡 SERVICE (FE): Gọi API xóa lịch sử công việc ID: ${id}...`);
+        const response = await ApiClient.delete(`/api/employees/work-history/${id}`);
+        
+        console.log('🔍 DELETE WORK HISTORY SERVICE: Response:', response);
+        
+        return {
+            success: true,
+            message: 'Xóa lịch sử công việc thành công'
+        };
+        
+    } catch (error) {
+        handleError(error, 'xóa lịch sử công việc');
     }
 };
 
@@ -11243,7 +12369,7 @@ export const addWorkHistory = async (workHistoryData) => {
 3. THỐNG KÊ TỔNG QUAN:
 ----------------------------------------
 📊 Tổng số file đã phân tích: 96
-📊 Tổng số dòng code (ước tính): 21586
+📊 Tổng số dòng code (ước tính): 23838
 
 ================================================================================
 Báo cáo được tạo thành công!

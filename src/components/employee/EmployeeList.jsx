@@ -1,7 +1,13 @@
 import React from 'react';
 import EmployeeTable from './EmployeeTable';
 
-const EmployeeList = ({ employees, onEdit, onDelete, onAddWorkHistory, onViewWorkHistory }) => {
+const EmployeeList = ({ 
+  employees, 
+  onEdit, 
+  onDelete, 
+  onAddWorkHistory, 
+  onManageWorkHistory // ✅ THAY ĐỔI: Đổi tên từ onViewWorkHistory thành onManageWorkHistory
+}) => {
   return (
     <div className="employee-list">
       <div className="mb-3">
@@ -13,9 +19,8 @@ const EmployeeList = ({ employees, onEdit, onDelete, onAddWorkHistory, onViewWor
         employees={employees}
         onEdit={onEdit}
         onDelete={onDelete}
-        // ✅ THÊM LẠI: Truyền tiếp props xuống EmployeeTable
         onAddWorkHistory={onAddWorkHistory}
-        onViewWorkHistory={onViewWorkHistory}
+        onManageWorkHistory={onManageWorkHistory} // ✅ THAY ĐỔI: Truyền prop mới xuống EmployeeTable
       />
     </div>
   );

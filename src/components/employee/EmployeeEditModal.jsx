@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
-// ✅ SỬA: Loại bỏ hoàn toàn dòng import không cần thiết và gây lỗi này.
-// import { employeeService } from '../../services/employee.js';
 import { useNotification } from '../../hooks/useNotification';
 import Modal from '../common/Modal.jsx';
 import { ButtonLoading } from '../common/Loading.jsx';
 
 const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
-  const [formData, setFormData] = useState({});
+    const [formData, setFormData] = useState({
+    fullName: '',
+    phoneNumber: '',
+    gender: 'Nam',
+    bankAccount: '',
+    bankName: '',
+    status: 'active',
+  });
+  //const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
   const { showNotification } = useNotification();
 
@@ -17,7 +23,6 @@ const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
         fullName: employee.fullName || '',
         phoneNumber: employee.phoneNumber || '',
         gender: employee.gender || 'Nam',
-        hourlyRate: employee.hourlyRate || 0,
         bankAccount: employee.bankAccount || '',
         bankName: employee.bankName || '',
         status: employee.status || 'active',
@@ -34,15 +39,14 @@ const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Gọi hàm onSave được truyền từ EmployeeManagementPage.
-      // Hàm này sẽ gọi hook useEmployees để thực sự cập nhật dữ liệu.
+      // Gọi hàm onSave được truyền từ EmployeeManagementPage. Hàm này sẽ gọi hook useEmployees để thực sự cập nhật dữ liệu.
       const success = await onSave(formData);
-      if (success) {
-        // Component cha (EmployeeManagementPage) sẽ tự xử lý việc đóng modal.
-      } else {
-        // Nếu onSave trả về false, hiển thị thông báo lỗi chung.
-        showNotification('Cập nhật thất bại. Vui lòng thử lại.', 'error');
-      }
+      // if (success) {
+      //   // Component cha (EmployeeManagementPage) sẽ tự xử lý việc đóng modal.
+      // } else {
+      //   // Nếu onSave trả về false, hiển thị thông báo lỗi chung.
+      //   showNotification('Cập nhật thất bại. Vui lòng thử lại.', 'error');
+      // }
     } catch (error) {
       console.error('Lỗi khi submit form sửa nhân viên:', error);
       showNotification(error.message || 'Lỗi hệ thống khi cập nhật.', 'error');
@@ -78,10 +82,10 @@ const EmployeeEditModal = ({ isOpen, onClose, onSave, employee }) => {
               <option value="Nữ">Nữ</option>
             </select>
           </div>
-          <div className="col-md-6 mb-3">
+          {/* <div className="col-md-6 mb-3">
             <label className="form-label">Lương/giờ</label>
             <input type="number" name="hourlyRate" value={formData.hourlyRate} onChange={handleChange} className="form-control" required min="0"/>
-          </div>
+          </div> */}
         </div>
         <div className="row">
           <div className="col-md-6 mb-3">

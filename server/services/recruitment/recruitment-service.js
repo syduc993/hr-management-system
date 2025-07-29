@@ -85,9 +85,33 @@ class RecruitmentService extends BaseService {
         // Giữ nguyên logic
     }
 
+
     async getRequestByNo(requestNo) {
-        // Giữ nguyên logic
+        console.log('🔍 RECRUITMENT: Searching for request number:', requestNo);
+
+        // BƯỚC 1: Chủ động lấy TẤT CẢ các đề xuất tuyển dụng.
+        // Hàm này sẽ tự động dùng cache nếu có, hoặc gọi API nếu không.
+        const allRequests = await this.getRecruitmentRequests();
+        
+        if (!allRequests || allRequests.length === 0) {
+            console.log('⚠️ RECRUITMENT: No requests found to search in.');
+            return null;
+        }
+
+        // BƯỚC 2: Tìm kiếm trên danh sách `allRequests` vừa lấy được.
+        // Logic tìm kiếm bên trong `find` vẫn giữ nguyên.
+        const found = allRequests.find(record => {
+            // `record` ở đây đã được transform bởi `transformRecruitmentData`
+            // nên nó là một object phẳng, không cần `record.fields`.
+            const requestValue = record.requestNo;
+            
+            return String(requestValue || '').trim() === String(requestNo).trim();
+        });
+
+        console.log('🔍 RECRUITMENT: Search result:', found ? 'FOUND' : 'NOT_FOUND');
+        return found;
     }
+
 
     // ✅ THAY ĐỔI LOGIC CỐT LÕI TẠI ĐÂY
     async getRecruitmentHoursSummary() {

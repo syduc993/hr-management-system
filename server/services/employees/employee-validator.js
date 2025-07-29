@@ -16,10 +16,6 @@ class EmployeeValidator {
             errors.push('Giới tính phải là Nam hoặc Nữ');
         }
 
-        if (!employeeData.hourlyRate || employeeData.hourlyRate <= 0) {
-            errors.push('Lương theo giờ phải lớn hơn 0');
-        }
-
         if (!employeeData.bankAccount || employeeData.bankAccount.trim().length < 6) {
             errors.push('Số tài khoản phải có ít nhất 6 ký tự');
         }

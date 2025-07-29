@@ -27,6 +27,14 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
   const [selectedRecruitments, setSelectedRecruitments] = useState([]);
   const [isRecruitmentModalOpen, setIsRecruitmentModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // ✅ THÊM: State cho các trường mới
+  const [workHistoryData, setWorkHistoryData] = useState({
+    fromDate: '',
+    toDate: '',
+    hourlyRate: ''
+  });
+  
   const { showNotification } = useNotification();
 
   /**
@@ -37,8 +45,52 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
   const handleRecruitmentSelect = (recruitmentObject) => {
     // Luôn nhận về một mảng, kể cả khi chỉ có một lựa chọn.
     setSelectedRecruitments(recruitmentObject ? [recruitmentObject] : []);
-    //setSelectedRecruitments(recruitments || []);
     setIsRecruitmentModalOpen(false);
+  };
+
+  // ✅ THÊM: Xử lý thay đổi dữ liệu form
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setWorkHistoryData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // ✅ THÊM: Validation các trường mới
+  const validateForm = () => {
+    const errors = [];
+
+    // Kiểm tra đã chọn đề xuất
+    if (selectedRecruitments.length === 0) {
+      errors.push('Vui lòng chọn một đề xuất tuyển dụng.');
+    }
+
+    // Kiểm tra các trường bắt buộc
+    if (!workHistoryData.fromDate) {
+      errors.push('Từ ngày là bắt buộc.');
+    }
+
+    if (!workHistoryData.toDate) {
+      errors.push('Đến ngày là bắt buộc.');
+    }
+
+    // Kiểm tra logic ngày
+    if (workHistoryData.fromDate && workHistoryData.toDate) {
+      const fromDate = new Date(workHistoryData.fromDate);
+      const toDate = new Date(workHistoryData.toDate);
+      
+      if (toDate < fromDate) {
+        errors.push('Đến ngày phải lớn hơn hoặc bằng Từ ngày.');
+      }
+    }
+
+    // Kiểm tra mức lương
+    if (workHistoryData.hourlyRate && (isNaN(workHistoryData.hourlyRate) || parseFloat(workHistoryData.hourlyRate) < 0)) {
+      errors.push('Mức lương/giờ phải là số và không được âm.');
+    }
+
+    return errors;
   };
 
   /**
@@ -47,9 +99,10 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Kiểm tra xem mảng selectedRecruitments có phần tử nào không.
-    if (selectedRecruitments.length === 0) {
-      showNotification('Vui lòng chọn một đề xuất tuyển dụng.', 'warning');
+    // ✅ CẬP NHẬT: Sử dụng validation mới
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0) {
+      showNotification(validationErrors.join(' '), 'warning');
       return;
     }
 
@@ -57,12 +110,16 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
     setIsLoading(true);
 
     try {
-      // API `addWorkHistory` chỉ cần employeeId và requestNo.
+      // ✅ CẬP NHẬT: API payload với các trường mới
       const workHistoryPayload = {
         employeeId: employee.employeeId,
-        // Lấy requestNo từ phần tử đầu tiên của mảng.
         requestNo: selectedRecruitments[0].requestNo,
+        fromDate: workHistoryData.fromDate,
+        toDate: workHistoryData.toDate,
+        hourlyRate: workHistoryData.hourlyRate ? parseFloat(workHistoryData.hourlyRate) : undefined,
       };
+
+      console.log('📤 Sending work history payload:', workHistoryPayload);
 
       const response = await addWorkHistory(workHistoryPayload);
 
@@ -89,7 +146,7 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
         isOpen={isOpen}
         onClose={onClose}
         title={`Thêm Lịch sử cho: ${employee.fullName}`}
-        size="md"
+        size="lg"
       >
         <form onSubmit={handleSubmit}>
           {/* Trường hiển thị mã nhân viên (không cho sửa) */}
@@ -117,6 +174,9 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
                       <strong className="d-block">Mã ĐX: {selectedRecruitments[0].requestNo}</strong>
                       <small className="text-muted">
                         Vị trí: {selectedRecruitments[0].position} • Phòng ban: {selectedRecruitments[0].department}
+                      </small>
+                      <small className="d-block text-info">
+                        Thời gian ĐX: {selectedRecruitments[0].fromDateFormatted} - {selectedRecruitments[0].toDateFormatted}
                       </small>
                     </div>
                     <div className="d-flex align-items-center gap-1">
@@ -155,6 +215,73 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
             )}
           </div>
 
+          {/* ✅ THÊM: Các trường mới */}
+          <div className="row mb-3">
+            <div className="col-md-6">
+              <label htmlFor="fromDate" className="form-label">
+                Từ ngày <span className="text-danger">*</span>
+              </label>
+              <input
+                type="date"
+                className="form-control"
+                id="fromDate"
+                name="fromDate"
+                value={workHistoryData.fromDate}
+                onChange={handleInputChange}
+                disabled={isLoading}
+              />
+              <small className="form-text text-muted">
+                Ngày bắt đầu làm việc
+              </small>
+            </div>
+            <div className="col-md-6">
+              <label htmlFor="toDate" className="form-label">
+                Đến ngày <span className="text-danger">*</span>
+              </label>
+              <input
+                type="date"
+                className="form-control"
+                id="toDate"
+                name="toDate"
+                value={workHistoryData.toDate}
+                onChange={handleInputChange}
+                disabled={isLoading}
+              />
+              <small className="form-text text-muted">
+                Ngày kết thúc làm việc
+              </small>
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label htmlFor="hourlyRate" className="form-label">
+              Mức lương/giờ (VNĐ)
+            </label>
+            <input
+              type="number"
+              className="form-control"
+              id="hourlyRate"
+              name="hourlyRate"
+              value={workHistoryData.hourlyRate}
+              onChange={handleInputChange}
+              min="0"
+              step="1000"
+              placeholder="Ví dụ: 50000"
+              disabled={isLoading}
+            />
+            <small className="form-text text-muted">
+              Để trống nếu sử dụng mức lương mặc định. Nhập số để áp dụng mức lương đặc biệt (ngày lễ, OT...)
+            </small>
+          </div>
+
+          {/* ✅ THÊM: Cảnh báo validation */}
+          {selectedRecruitments.length > 0 && (workHistoryData.fromDate || workHistoryData.toDate) && (
+            <div className="alert alert-info small">
+              <i className="fas fa-info-circle me-2"></i>
+              <strong>Lưu ý:</strong> Khoảng thời gian làm việc phải nằm trong khoảng thời gian của đề xuất tuyển dụng ({selectedRecruitments[0].fromDateFormatted} - {selectedRecruitments[0].toDateFormatted}).
+            </div>
+          )}
+
           {/* Các nút hành động ở chân modal */}
           <div className="modal-footer px-0 pb-0 border-0">
             <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isLoading}>
@@ -164,8 +291,8 @@ const AddWorkHistoryModal = ({ isOpen, onClose, employee, onSave }) => {
               type="submit"
               className="btn btn-primary"
               loading={isLoading}
-              // Nút Lưu bị vô hiệu hóa khi đang tải hoặc chưa chọn đề xuất
-              disabled={isLoading || selectedRecruitments.length === 0}
+              // Nút Lưu bị vô hiệu hóa khi đang tải hoặc chưa đủ thông tin
+              disabled={isLoading || selectedRecruitments.length === 0 || !workHistoryData.fromDate || !workHistoryData.toDate}
             >
               Thêm Lịch sử
             </ButtonLoading>

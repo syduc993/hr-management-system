@@ -7,7 +7,9 @@ import {
     deleteEmployee, 
     searchEmployees, 
     getEmployeeWorkHistory, 
-    addWorkHistory
+    addWorkHistory,
+    updateWorkHistory,
+    deleteWorkHistory
 } from '../controllers/employeeController.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.js';
 import ValidationMiddleware from '../middleware/validation.js';
@@ -28,6 +30,10 @@ router.delete('/:id', authenticateUser, authorizeRoles('hr', 'admin'), deleteEmp
 // Work history routes - SỬA ĐỂ TƯƠNG THÍCH VỚI CLIENT
 router.get('/:employeeId/work-history', authenticateUser, getEmployeeWorkHistory);
 router.post('/work-history', authenticateUser, authorizeRoles('hr', 'admin'), addWorkHistory);
+
+// ✅ THÊM MỚI: Routes cho sửa và xóa work history
+router.put('/work-history/:id', authenticateUser, authorizeRoles('hr', 'admin'), updateWorkHistory);
+router.delete('/work-history/:id', authenticateUser, authorizeRoles('hr', 'admin'), deleteWorkHistory);
 
 // ==================== ERROR HANDLING ====================
 // Handle 404 for unmatched routes

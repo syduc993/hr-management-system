@@ -31,24 +31,7 @@ class EmployeeController {
      */
     async addEmployee(req, res) {
         try {
-            const { fullName, phoneNumber, gender, hourlyRate, bankAccount, bankName, workHistoryData } = req.body;
-
-            // // Check for duplicate request numbers
-            // const requestNos = workHistoryData.map(item => item.requestNo);
-            // const uniqueRequestNos = [...new Set(requestNos)];
-            // if (requestNos.length !== uniqueRequestNos.length) {
-            //     return res.status(400).json(formatResponse(
-            //         false, 
-            //         'Không được trùng lặp Request No.', 
-            //         null, 
-            //         'DUPLICATE_REQUEST_NO'
-            //     ));
-            // }
-
-            // Generate employee ID and check for duplicates
-            //const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
-            //const isDuplicate = await larkServiceManager.checkEmployeeIdExists(employeeId);
-
+            const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
             const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
             const employeeService = larkServiceManager.getService('employee');
             const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
@@ -61,13 +44,11 @@ class EmployeeController {
                 ));
             }
             
-            // Prepare employee data
             const employeeData = {
                 employeeId,
                 fullName,
                 phoneNumber,
                 gender,
-                hourlyRate: parseFloat(hourlyRate),
                 bankAccount,
                 bankName,
                 recruitmentLink: workHistoryData.map(item => item.requestNo).join(', '),
@@ -75,10 +56,8 @@ class EmployeeController {
                 createdAt: new Date().toISOString()
             };
 
-            // Create employee
             const employee = await larkServiceManager.addEmployee(employeeData);
             
-            // Add work history entries with duplicate check
             const workHistoryResults = [];
             for (const historyEntry of workHistoryData) {
                 const workHistoryExists = await larkServiceManager.checkWorkHistoryExists(employeeId, historyEntry.requestNo);
@@ -92,13 +71,15 @@ class EmployeeController {
                 }
                 
                 const workHistory = await larkServiceManager.addWorkHistory({
-                    employeeId: employeeId,
-                    requestNo: historyEntry.requestNo
+                    employeeId,
+                    requestNo: historyEntry.requestNo,
+                    fromDate: historyEntry.fromDate,
+                    toDate: historyEntry.toDate,
+                    hourlyRate: historyEntry.hourlyRate
                 });
                 workHistoryResults.push(workHistory);
             }
 
-            // ✅ SỬA: Clear cache sau khi thêm thành công để frontend có dữ liệu mới nhất
             console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Thêm nhân viên thành công', {
@@ -124,16 +105,14 @@ class EmployeeController {
     async updateEmployee(req, res) {
         try {
             const { id } = req.params;
-            const { fullName, phoneNumber, gender, hourlyRate, bankAccount, bankName, recruitmentLink, status } = req.body;
+            const { fullName, phoneNumber, gender, bankAccount, bankName, recruitmentLink, status } = req.body;
             
-            // Generate new employee ID with updated info
             const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
             const updatedData = {
                 employeeId,
                 fullName,
                 phoneNumber,
                 gender,
-                hourlyRate: parseFloat(hourlyRate),
                 bankAccount,
                 bankName,
                 recruitmentLink: recruitmentLink || '',
@@ -143,7 +122,6 @@ class EmployeeController {
             
             const employee = await larkServiceManager.updateEmployee(id, updatedData);
             
-            // ✅ SỬA: Clear cache sau khi cập nhật thành công
             console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
@@ -168,7 +146,6 @@ class EmployeeController {
             const { id } = req.params;
             await larkServiceManager.deleteEmployee(id);
             
-            // ✅ SỬA: Clear cache sau khi xóa thành công
             console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Xóa nhân viên thành công'));
@@ -229,20 +206,25 @@ class EmployeeController {
      */
     async addWorkHistory(req, res) {
         try {
-            const { employeeId, requestNo } = req.body;
+            // ✅ CẬP NHẬT: Nhận thêm các trường mới từ request body
+            const { employeeId, requestNo, fromDate, toDate, hourlyRate } = req.body;
             
             if (!employeeId || !requestNo) {
                 return res.status(400).json(formatResponse(
                     false, 
-                    'Thiếu thông tin bắt buộc', 
+                    'Thiếu thông tin bắt buộc: employeeId và requestNo', 
                     null, 
                     'VALIDATION_ERROR'
                 ));
             }
             
+            // ✅ CẬP NHẬT: Truyền tất cả các trường vào addWorkHistory
             const workHistory = await larkServiceManager.addWorkHistory({
                 employeeId,
-                requestNo
+                requestNo,
+                fromDate,      // ✅ THÊM
+                toDate,        // ✅ THÊM
+                hourlyRate     // ✅ THÊM
             });
             
             res.json(formatResponse(true, 'Thêm work history thành công', { workHistory }));
@@ -250,13 +232,32 @@ class EmployeeController {
         } catch (error) {
             console.error('❌ Controller: addWorkHistory failed:', error);
 
+            // ✅ CẬP NHẬT: Xử lý các loại lỗi cụ thể từ validation mới
             if (error.message.includes('bị trùng với lịch sử làm việc cũ')) {
-                // Trả về lỗi 409 Conflict thay vì 500
                 return res.status(409).json(formatResponse(
                     false,
-                    error.message, // Sử dụng thông báo lỗi đã được tạo ở service
+                    error.message,
                     null,
                     'DATE_OVERLAP_CONFLICT'
+                ));
+            }
+
+            if (error.message.includes('phải nằm trong khoảng ngày của đề xuất tuyển dụng')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'INVALID_DATE_RANGE'
+                ));
+            }
+
+            if (error.message.includes('Từ ngày và Đến ngày là bắt buộc') || 
+                error.message.includes('Đến ngày phải lớn hơn hoặc bằng Từ ngày')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'VALIDATION_ERROR'
                 ));
             }
 
@@ -265,6 +266,110 @@ class EmployeeController {
                 `Lỗi khi thêm work history: ${error.message}`, 
                 null, 
                 'WORK_HISTORY_ADD_FAILED'
+            ));
+        }
+    }
+
+    // ✅ THÊM MỚI: Update work history
+    /**
+     * Update work history entry
+     * @route PUT /api/employees/work-history/:id
+     */
+    async updateWorkHistory(req, res) {
+        try {
+            const { id } = req.params;
+            const { employeeId, requestNo, fromDate, toDate, hourlyRate } = req.body;
+            
+            if (!employeeId || !requestNo) {
+                return res.status(400).json(formatResponse(
+                    false, 
+                    'Thiếu thông tin bắt buộc: employeeId và requestNo', 
+                    null, 
+                    'VALIDATION_ERROR'
+                ));
+            }
+            
+            console.log(`📝 CONTROLLER: Updating work history ID: ${id}...`);
+            
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            const updatedWorkHistory = await workHistoryService.updateWorkHistory(id, {
+                employeeId,
+                requestNo,
+                fromDate,
+                toDate,
+                hourlyRate
+            });
+            
+            console.log('✅ CONTROLLER: Work history updated successfully');
+            
+            res.json(formatResponse(true, 'Cập nhật lịch sử công việc thành công', { workHistory: updatedWorkHistory }));
+            
+        } catch (error) {
+            console.error('❌ Controller: updateWorkHistory failed:', error);
+
+            // Xử lý các loại lỗi cụ thể
+            if (error.message.includes('bị trùng với lịch sử làm việc cũ')) {
+                return res.status(409).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'DATE_OVERLAP_CONFLICT'
+                ));
+            }
+
+            if (error.message.includes('phải nằm trong khoảng ngày của đề xuất tuyển dụng')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'INVALID_DATE_RANGE'
+                ));
+            }
+
+            if (error.message.includes('Từ ngày và Đến ngày là bắt buộc') || 
+                error.message.includes('Đến ngày phải lớn hơn hoặc bằng Từ ngày')) {
+                return res.status(400).json(formatResponse(
+                    false,
+                    error.message,
+                    null,
+                    'VALIDATION_ERROR'
+                ));
+            }
+
+            res.status(500).json(formatResponse(
+                false, 
+                `Lỗi khi cập nhật work history: ${error.message}`, 
+                null, 
+                'WORK_HISTORY_UPDATE_FAILED'
+            ));
+        }
+    }
+
+    // ✅ THÊM MỚI: Delete work history
+    /**
+     * Delete work history entry
+     * @route DELETE /api/employees/work-history/:id
+     */
+    async deleteWorkHistory(req, res) {
+        try {
+            const { id } = req.params;
+            
+            console.log(`🗑️ CONTROLLER: Deleting work history ID: ${id}...`);
+            
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            await workHistoryService.deleteWorkHistory(id);
+            
+            console.log('✅ CONTROLLER: Work history deleted successfully');
+            
+            res.json(formatResponse(true, 'Xóa lịch sử công việc thành công'));
+            
+        } catch (error) {
+            console.error('❌ Controller: deleteWorkHistory failed:', error);
+            res.status(500).json(formatResponse(
+                false, 
+                `Lỗi khi xóa work history: ${error.message}`, 
+                null, 
+                'WORK_HISTORY_DELETE_FAILED'
             ));
         }
     }
@@ -280,3 +385,6 @@ export const deleteEmployee = employeeController.deleteEmployee.bind(employeeCon
 export const searchEmployees = employeeController.searchEmployees.bind(employeeController);
 export const getEmployeeWorkHistory = employeeController.getEmployeeWorkHistory.bind(employeeController);
 export const addWorkHistory = employeeController.addWorkHistory.bind(employeeController);
+// ✅ THÊM MỚI: Export 2 methods mới
+export const updateWorkHistory = employeeController.updateWorkHistory.bind(employeeController);
+export const deleteWorkHistory = employeeController.deleteWorkHistory.bind(employeeController);
