@@ -133,6 +133,23 @@ export const updateEmployee = async (id, employeeData) => {
     }
 };
 
+// export const deleteEmployee = async (id) => {
+//     try {
+//         console.log(`📡 SERVICE (FE): Gọi API xóa nhân viên ID: ${id}...`);
+//         const response = await ApiClient.delete(`/api/employees/${id}`);
+        
+//         console.log('🔍 DELETE EMPLOYEE SERVICE: Response:', response);
+        
+//         return {
+//             success: true,
+//             message: 'Xóa nhân viên thành công'
+//         };
+//     } catch (error) {
+//         handleError(error, 'xóa nhân viên');
+//     }
+// };
+
+
 export const deleteEmployee = async (id) => {
     try {
         console.log(`📡 SERVICE (FE): Gọi API xóa nhân viên ID: ${id}...`);
@@ -140,20 +157,45 @@ export const deleteEmployee = async (id) => {
         
         console.log('🔍 DELETE EMPLOYEE SERVICE: Response:', response);
         
+        // ✅ THÊM: Hiển thị thông tin chi tiết từ backend
+        if (response.data?.deletedWorkHistories > 0) {
+            console.log(`✅ Deleted ${response.data.deletedWorkHistories} work history records`);
+        }
+        
         return {
             success: true,
-            message: 'Xóa nhân viên thành công'
+            message: response.message || 'Xóa nhân viên thành công',
+            data: response.data
         };
+        
     } catch (error) {
-        handleError(error, 'xóa nhân viên');
+        console.error('❌ Delete employee service error:', error);
+        
+        // ✅ THÊM: Better error message
+        let errorMessage = 'Lỗi khi xóa nhân viên';
+        
+        try {
+            const errorData = JSON.parse(error.message);
+            errorMessage = errorData.message || errorMessage;
+        } catch (parseError) {
+            errorMessage = error.message || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
     }
 };
+
+
 
 export const getApprovedRecruitmentRequests = async () => {
     try {
         console.log('📡 SERVICE (FE): Gọi API lấy danh sách đề xuất tuyển dụng...');
-        const response = await ApiClient.get('/api/recruitment');
-        
+        //const response = await ApiClient.get('/api/recruitment');
+
+        //Thêm filter theo status
+        const response = await ApiClient.get('/api/recruitment', {
+            status: 'Approved,Under Review'
+        });
         console.log('🔍 RECRUITMENT SERVICE: Response:', response);
         
         // Handle different response structures

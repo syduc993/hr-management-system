@@ -1,7 +1,7 @@
 // server/controllers/employeeController.js
 import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
-
+import CacheService from '../services/core/cache-service.js';
 class EmployeeController {
     /**
      * Get all employees
@@ -29,12 +29,86 @@ class EmployeeController {
      * Add new employee with work history support
      * @route POST /api/employees
      */
+    // async addEmployee(req, res) {
+    //     try {
+    //         const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
+    //         const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+    //         const employeeService = larkServiceManager.getService('employee');
+    //         const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
+    //         if (isDuplicate) {
+    //             return res.status(409).json(formatResponse(
+    //                 false, 
+    //                 'Mã nhân viên đã tồn tại trong hệ thống', 
+    //                 null, 
+    //                 'DUPLICATE_EMPLOYEE_ID'
+    //             ));
+    //         }
+            
+    //         const employeeData = {
+    //             employeeId,
+    //             fullName,
+    //             phoneNumber,
+    //             gender,
+    //             bankAccount,
+    //             bankName,
+    //             recruitmentLink: workHistoryData.map(item => item.requestNo).join(', '),
+    //             status: 'active',
+    //             createdAt: new Date().toISOString()
+    //         };
+
+    //         const employee = await larkServiceManager.addEmployee(employeeData);
+            
+    //         const workHistoryResults = [];
+    //         for (const historyEntry of workHistoryData) {
+    //             const workHistoryExists = await larkServiceManager.checkWorkHistoryExists(employeeId, historyEntry.requestNo);
+    //             if (workHistoryExists) {
+    //                 return res.status(409).json(formatResponse(
+    //                     false, 
+    //                     `Work History đã tồn tại: ${employeeId} - ${historyEntry.requestNo}`, 
+    //                     null, 
+    //                     'DUPLICATE_WORK_HISTORY'
+    //                 ));
+    //             }
+                
+    //             const workHistory = await larkServiceManager.addWorkHistory({
+    //                 employeeId,
+    //                 requestNo: historyEntry.requestNo,
+    //                 fromDate: historyEntry.fromDate,
+    //                 toDate: historyEntry.toDate,
+    //                 hourlyRate: historyEntry.hourlyRate
+    //             });
+    //             workHistoryResults.push(workHistory);
+    //         }
+
+    //         console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
+            
+    //         res.json(formatResponse(true, 'Thêm nhân viên thành công', {
+    //             employee,
+    //             workHistory: workHistoryResults
+    //         }));
+            
+    //     } catch (error) {
+    //         console.error('❌ Controller: addEmployee failed:', error);
+    //         res.status(500).json(formatResponse(
+    //             false, 
+    //             `Lỗi hệ thống khi thêm nhân viên: ${error.message}`, 
+    //             null, 
+    //             'EMPLOYEE_ADD_FAILED'
+    //         ));
+    //     }
+    // }
+
+
     async addEmployee(req, res) {
+        let createdEmployee = null;
+        let createdWorkHistories = [];
+        
         try {
             const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
             const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
-            const employeeService = larkServiceManager.getService('employee');
-            const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
+            
+            // ✅ STEP 1: Kiểm tra duplicate trước khi tạo bất kỳ record nào
+            const isDuplicate = await larkServiceManager.getService('employee').checkEmployeeIdExists(employeeId);
             if (isDuplicate) {
                 return res.status(409).json(formatResponse(
                     false, 
@@ -43,7 +117,34 @@ class EmployeeController {
                     'DUPLICATE_EMPLOYEE_ID'
                 ));
             }
+
+            // ✅ STEP 2: Validate work history TRƯỚC KHI tạo employee
+            const recruitmentService = larkServiceManager.getService('recruitment');
+            const workHistoryService = larkServiceManager.getService('workHistory');
             
+            for (const historyEntry of workHistoryData) {
+                // Validate work history trước
+                const recruitmentDetails = await recruitmentService.getRequestByNo(historyEntry.requestNo);
+                if (!recruitmentDetails) {
+                    throw new Error(`Không tìm thấy đề xuất tuyển dụng với mã: ${historyEntry.requestNo}`);
+                }
+                
+                // Validate ngày tháng
+                workHistoryService.validateWorkHistoryFields({
+                    fromDate: historyEntry.fromDate,
+                    toDate: historyEntry.toDate,
+                    hourlyRate: historyEntry.hourlyRate
+                }, recruitmentDetails);
+                
+                // Validate date overlap
+                await workHistoryService.validateWorkHistoryDateOverlap(
+                    employeeId, 
+                    historyEntry.requestNo, 
+                    recruitmentService
+                );
+            }
+
+            // ✅ STEP 3: Nếu validation pass, mới tạo employee
             const employeeData = {
                 employeeId,
                 fullName,
@@ -56,60 +157,174 @@ class EmployeeController {
                 createdAt: new Date().toISOString()
             };
 
-            const employee = await larkServiceManager.addEmployee(employeeData);
+            console.log('✅ All validations passed, creating employee...');
+            createdEmployee = await larkServiceManager.addEmployee(employeeData);
             
+            // ✅ STEP 4: Tạo work history
+            console.log('✅ Employee created, creating work histories...');
             const workHistoryResults = [];
+            
             for (const historyEntry of workHistoryData) {
-                const workHistoryExists = await larkServiceManager.checkWorkHistoryExists(employeeId, historyEntry.requestNo);
-                if (workHistoryExists) {
-                    return res.status(409).json(formatResponse(
-                        false, 
-                        `Work History đã tồn tại: ${employeeId} - ${historyEntry.requestNo}`, 
-                        null, 
-                        'DUPLICATE_WORK_HISTORY'
-                    ));
+                try {
+                    const workHistory = await larkServiceManager.addWorkHistory({
+                        employeeId,
+                        requestNo: historyEntry.requestNo,
+                        fromDate: historyEntry.fromDate,
+                        toDate: historyEntry.toDate,
+                        hourlyRate: historyEntry.hourlyRate
+                    });
+                    workHistoryResults.push(workHistory);
+                    createdWorkHistories.push(workHistory); // Track for rollback
+                } catch (workHistoryError) {
+                    console.error('❌ Work history creation failed:', workHistoryError);
+                    
+                    // ✅ ROLLBACK: Xóa employee và work histories đã tạo
+                    await this.rollbackEmployeeCreation(createdEmployee.employee, createdWorkHistories);
+                    
+                    throw new Error(`Lỗi khi tạo work history: ${workHistoryError.message}`);
                 }
-                
-                const workHistory = await larkServiceManager.addWorkHistory({
-                    employeeId,
-                    requestNo: historyEntry.requestNo,
-                    fromDate: historyEntry.fromDate,
-                    toDate: historyEntry.toDate,
-                    hourlyRate: historyEntry.hourlyRate
-                });
-                workHistoryResults.push(workHistory);
             }
 
-            console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
-            
+            console.log('✅ All work histories created successfully');
+
             res.json(formatResponse(true, 'Thêm nhân viên thành công', {
-                employee,
+                employee: createdEmployee,
                 workHistory: workHistoryResults
             }));
             
         } catch (error) {
-            console.error('❌ Controller: addEmployee failed:', error);
+            console.error('❌ Employee creation failed:', error);
+            
+            // ✅ ROLLBACK nếu có lỗi
+            if (createdEmployee) {
+                await this.rollbackEmployeeCreation(createdEmployee.employee, createdWorkHistories);
+            }
+            
+            // Trả về lỗi cụ thể cho frontend
             res.status(500).json(formatResponse(
                 false, 
-                `Lỗi hệ thống khi thêm nhân viên: ${error.message}`, 
+                error.message || 'Lỗi hệ thống khi thêm nhân viên', 
                 null, 
                 'EMPLOYEE_ADD_FAILED'
             ));
         }
     }
 
+    // ✅ THÊM: Method rollback
+    async rollbackEmployeeCreation(employee, createdWorkHistories) {
+        console.log('🔄 ROLLBACK: Starting cleanup...');
+        
+        try {
+            // Xóa work histories đã tạo
+            for (const workHistory of createdWorkHistories) {
+                if (workHistory && workHistory.larkResponse && workHistory.larkResponse.data) {
+                    try {
+                        await larkServiceManager.getService('workHistory').deleteWorkHistory(
+                            workHistory.larkResponse.data.record.record_id
+                        );
+                        console.log('✅ ROLLBACK: Deleted work history', workHistory.larkResponse.data.record.record_id);
+                    } catch (whDeleteError) {
+                        console.error('❌ ROLLBACK: Failed to delete work history', whDeleteError);
+                    }
+                }
+            }
+            
+            // Xóa employee
+            if (employee && employee.larkResponse && employee.larkResponse.data) {
+                try {
+                    await larkServiceManager.getService('employee').deleteEmployee(
+                        employee.larkResponse.data.record_id
+                    );
+                    console.log('✅ ROLLBACK: Deleted employee', employee.larkResponse.data.record_id);
+                } catch (empDeleteError) {
+                    console.error('❌ ROLLBACK: Failed to delete employee', empDeleteError);
+                }
+            }
+            
+            console.log('✅ ROLLBACK: Cleanup completed');
+        } catch (rollbackError) {
+            console.error('❌ ROLLBACK: Critical error during cleanup:', rollbackError);
+        }
+    }
+
+
+
+
+
+
+
     /**
      * Update employee
      * @route PUT /api/employees/:id
      */
+    // async updateEmployee(req, res) {
+    //     try {
+    //         const { id } = req.params;
+    //         const { fullName, phoneNumber, gender, bankAccount, bankName, recruitmentLink, status } = req.body;
+            
+    //         const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+    //         const updatedData = {
+    //             employeeId,
+    //             fullName,
+    //             phoneNumber,
+    //             gender,
+    //             bankAccount,
+    //             bankName,
+    //             recruitmentLink: recruitmentLink || '',
+    //             status,
+    //             updatedAt: new Date().toISOString()
+    //         };
+            
+    //         const employee = await larkServiceManager.updateEmployee(id, updatedData);
+            
+    //         console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
+            
+    //         res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
+            
+    //     } catch (error) {
+    //         console.error('❌ Controller: updateEmployee failed:', error);
+    //         res.status(500).json(formatResponse(
+    //             false, 
+    //             `Lỗi khi cập nhật nhân viên: ${error.message}`, 
+    //             null, 
+    //             'EMPLOYEE_UPDATE_FAILED'
+    //         ));
+    //     }
+    // }
+
+
+
     async updateEmployee(req, res) {
         try {
             const { id } = req.params;
             const { fullName, phoneNumber, gender, bankAccount, bankName, recruitmentLink, status } = req.body;
             
-            const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+            // ✅ STEP 1: Lấy thông tin employee cũ trước khi update
+            console.log('📋 Getting old employee data for comparison...');
+            const oldEmployee = await larkServiceManager.getService('employee').getEmployeeById(id);
+            if (!oldEmployee) {
+                return res.status(404).json(formatResponse(
+                    false, 
+                    'Không tìm thấy nhân viên cần cập nhật', 
+                    null, 
+                    'EMPLOYEE_NOT_FOUND'
+                ));
+            }
+            
+            const oldEmployeeId = oldEmployee.employeeId;
+            
+            // ✅ STEP 2: Tạo mã nhân viên mới
+            const newEmployeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+            
+            console.log('🔍 Comparing employee IDs:', {
+                old: oldEmployeeId,
+                new: newEmployeeId,
+                changed: oldEmployeeId !== newEmployeeId
+            });
+            
+            // ✅ STEP 3: Update employee data
             const updatedData = {
-                employeeId,
+                employeeId: newEmployeeId,
                 fullName,
                 phoneNumber,
                 gender,
@@ -122,7 +337,13 @@ class EmployeeController {
             
             const employee = await larkServiceManager.updateEmployee(id, updatedData);
             
-            console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
+            // ✅ STEP 4: Nếu mã nhân viên thay đổi, cập nhật work history
+            if (oldEmployeeId !== newEmployeeId) {
+                console.log('🔄 Employee ID changed, updating work history records...');
+                await this.updateWorkHistoryEmployeeId(oldEmployeeId, newEmployeeId);
+            }
+            
+            console.log('✅ Employee updated successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
             
@@ -137,18 +358,156 @@ class EmployeeController {
         }
     }
 
+    // ✅ THÊM: Method cập nhật employeeId trong work history
+    async updateWorkHistoryEmployeeId(oldEmployeeId, newEmployeeId) {
+        try {
+            console.log(`🔄 Updating work history: ${oldEmployeeId} -> ${newEmployeeId}`);
+            
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            
+            // Lấy tất cả work history của employee cũ
+            const workHistories = await workHistoryService.getWorkHistoryByEmployee(oldEmployeeId);
+            
+            if (workHistories.length === 0) {
+                console.log('ℹ️ No work history records to update');
+                return;
+            }
+            
+            console.log(`📋 Found ${workHistories.length} work history records to update`);
+            
+            // Cập nhật từng record
+            const updatePromises = workHistories.map(async (workHistory) => {
+                try {
+                    await workHistoryService.updateWorkHistory(workHistory.id, {
+                        employeeId: newEmployeeId,
+                        requestNo: workHistory.requestNo,
+                        fromDate: workHistory.fromDate,
+                        toDate: workHistory.toDate,
+                        hourlyRate: workHistory.hourlyRate
+                    });
+                    
+                    console.log(`✅ Updated work history record: ${workHistory.id}`);
+                    return { success: true, id: workHistory.id };
+                } catch (updateError) {
+                    console.error(`❌ Failed to update work history ${workHistory.id}:`, updateError);
+                    return { success: false, id: workHistory.id, error: updateError.message };
+                }
+            });
+            
+            const results = await Promise.all(updatePromises);
+            
+            const successCount = results.filter(r => r.success).length;
+            const failedCount = results.length - successCount;
+            
+            console.log(`📊 Work history update results: ${successCount} success, ${failedCount} failed`);
+            
+            if (failedCount > 0) {
+                const failedIds = results.filter(r => !r.success).map(r => r.id);
+                console.warn('⚠️ Some work history records failed to update:', failedIds);
+                // Có thể log warning nhưng không throw error để không làm fail employee update
+            }
+            
+        } catch (error) {
+            console.error('❌ Critical error updating work history employee IDs:', error);
+            // Log error nhưng không throw để không làm fail employee update
+        }
+    }
+
+
+
+
+
+
     /**
      * Delete employee
      * @route DELETE /api/employees/:id
      */
+    // async deleteEmployee(req, res) {
+    //     try {
+    //         const { id } = req.params;
+    //         await larkServiceManager.deleteEmployee(id);
+            
+    //         console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
+            
+    //         res.json(formatResponse(true, 'Xóa nhân viên thành công'));
+    //     } catch (error) {
+    //         console.error('❌ Controller: deleteEmployee failed:', error);
+    //         res.status(500).json(formatResponse(
+    //             false, 
+    //             `Lỗi khi xóa nhân viên: ${error.message}`, 
+    //             null, 
+    //             'EMPLOYEE_DELETE_FAILED'
+    //         ));
+    //     }
+    // }
+
+
     async deleteEmployee(req, res) {
         try {
             const { id } = req.params;
+            
+            // STEP 1: Lấy thông tin employee trước khi xóa
+            console.log(`🔍 Getting employee info before deletion: ${id}`);
+            const employee = await larkServiceManager.getService('employee').getEmployeeById(id);
+            
+            if (!employee) {
+                return res.status(404).json(formatResponse(
+                    false, 
+                    'Không tìm thấy nhân viên cần xóa', 
+                    null, 
+                    'EMPLOYEE_NOT_FOUND'
+                ));
+            }
+            
+            const employeeId = employee.employeeId;
+            console.log(`👤 Employee to delete: ${employee.fullName} (${employeeId})`);
+            
+            // STEP 2: Lấy danh sách work history cần xóa
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            const workHistories = await workHistoryService.getWorkHistoryByEmployee(employeeId);
+            
+            console.log(`📋 Found ${workHistories.length} work history records to delete`);
+            
+            // STEP 3: Xóa tất cả work history trước
+            const deleteWorkHistoryPromises = workHistories.map(async (wh) => {
+                try {
+                    await workHistoryService.deleteWorkHistory(wh.id);
+                    console.log(`✅ Deleted work history: ${wh.id} (${wh.requestNo})`);
+                    return { success: true, id: wh.id };
+                } catch (error) {
+                    console.error(`❌ Failed to delete work history ${wh.id}:`, error);
+                    return { success: false, id: wh.id, error: error.message };
+                }
+            });
+            
+            const workHistoryResults = await Promise.all(deleteWorkHistoryPromises);
+            const failedDeletions = workHistoryResults.filter(r => !r.success);
+            
+            if (failedDeletions.length > 0) {
+                console.error(`❌ Failed to delete ${failedDeletions.length} work history records`);
+                return res.status(500).json(formatResponse(
+                    false,
+                    `Không thể xóa hoàn toàn dữ liệu. ${failedDeletions.length} work history records failed to delete.`,
+                    { failedDeletions },
+                    'WORK_HISTORY_DELETE_FAILED'
+                ));
+            }
+            
+            // STEP 4: Xóa employee sau khi đã xóa hết work history
+            console.log(`🗑️ All work histories deleted successfully. Now deleting employee...`);
             await larkServiceManager.deleteEmployee(id);
             
-            console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
+            console.log(`✅ Successfully deleted employee ${employee.fullName} and ${workHistories.length} work history records`);
             
-            res.json(formatResponse(true, 'Xóa nhân viên thành công'));
+            res.json(formatResponse(
+                true, 
+                `Xóa nhân viên "${employee.fullName}" và ${workHistories.length} bản ghi lịch sử công việc thành công`,
+                {
+                    deletedEmployee: employee.fullName,
+                    deletedWorkHistories: workHistories.length
+                }
+            ));
+            
         } catch (error) {
             console.error('❌ Controller: deleteEmployee failed:', error);
             res.status(500).json(formatResponse(
@@ -159,6 +518,8 @@ class EmployeeController {
             ));
         }
     }
+
+
 
     /**
      * Search employees
@@ -206,9 +567,12 @@ class EmployeeController {
      */
     async addWorkHistory(req, res) {
         try {
+            
             // ✅ CẬP NHẬT: Nhận thêm các trường mới từ request body
             const { employeeId, requestNo, fromDate, toDate, hourlyRate } = req.body;
-            
+
+            CacheService.clear();
+
             if (!employeeId || !requestNo) {
                 return res.status(400).json(formatResponse(
                     false, 

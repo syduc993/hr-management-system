@@ -68,9 +68,49 @@ const EmployeeManagementPage = () => {
     }
   };
 
+  // const handleDeleteEmployee = async (id) => {
+  //   await deleteEmployee(id);
+  // };
+
+
+  // ✅ CẬP NHẬT: handleDeleteEmployee với warning về work history
   const handleDeleteEmployee = async (id) => {
-    await deleteEmployee(id);
+      // Tìm employee để lấy thông tin
+      const employee = employees.find(emp => emp.id === id);
+      if (!employee) {
+          showNotification('Không tìm thấy nhân viên để xóa', 'error');
+          return;
+      }
+      
+      // ✅ THÊM: Warning về cascade delete
+      const confirmMessage = `⚠️ CẢNH BÁO: Xóa nhân viên sẽ xóa vĩnh viễn:
+
+  👤 Nhân viên: "${employee.fullName}" (${employee.employeeId})
+  📋 TẤT CẢ lịch sử công việc liên quan
+  ⏰ TẤT CẢ dữ liệu chấm công liên quan
+
+  ❗ Hành động này KHÔNG THỂ HOÀN TÁC!
+
+  Bạn có chắc chắn muốn tiếp tục?`;
+
+      if (!window.confirm(confirmMessage)) {
+          return;
+      }
+      
+      // ✅ THÊM: Second confirmation
+      const finalConfirm = `Xác nhận lần cuối: Xóa "${employee.fullName}"?`;
+      if (!window.confirm(finalConfirm)) {
+          return;
+      }
+      
+      // Thực hiện xóa
+      const success = await deleteEmployee(id);
+      if (success) {
+          showNotification(`Đã xóa nhân viên "${employee.fullName}" và tất cả dữ liệu liên quan`, 'success');
+      }
   };
+
+
 
   const handleAddEmployee = async (formData) => {
     return await addEmployee(formData);

@@ -188,47 +188,141 @@ class WorkHistoryService extends BaseService {
     }
 
 
-    async validateWorkHistoryDateOverlap(employeeId, newRequestNo, recruitmentService) {
-        console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, Request ${newRequestNo}`);
+    // async validateWorkHistoryDateOverlap(employeeId, newRequestNo, recruitmentService) {
+    //     console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, Request ${newRequestNo}`);
 
-        const newRequestDetails = await recruitmentService.getRequestByNo(newRequestNo);
-        if (!newRequestDetails.fromDate || !newRequestDetails.toDate) {
-            console.warn(`⚠️ Không tìm thấy ngày cho Request No. ${newRequestNo}, bỏ qua kiểm tra trùng lặp.`);
-            return;
+    //     const newRequestDetails = await recruitmentService.getRequestByNo(newRequestNo);
+    //     if (!newRequestDetails.fromDate || !newRequestDetails.toDate) {
+    //         console.warn(`⚠️ Không tìm thấy ngày cho Request No. ${newRequestNo}, bỏ qua kiểm tra trùng lặp.`);
+    //         return;
+    //     }
+    //     const newStartDate = newRequestDetails.fromDate;
+    //     const newEndDate = newRequestDetails.toDate;
+
+    //     const existingHistories = await this.getWorkHistoryByEmployee(employeeId);
+    //     if (existingHistories.length === 0) {
+    //         console.log('✅ Không có lịch sử cũ, không cần kiểm tra.');
+    //         return;
+    //     }
+
+    //     for (const oldHistory of existingHistories) {
+    //         const oldRequestDetails = await recruitmentService.getRequestByNo(oldHistory.requestNo);
+    //         if (!oldRequestDetails || !oldRequestDetails.fromDate || !oldRequestDetails.toDate) {
+    //             continue;
+    //         }
+
+    //         const oldStartDate = oldRequestDetails.fromDate;
+    //         const oldEndDate = oldRequestDetails.toDate;
+
+    //         if (dateRangesOverlap(newStartDate, newEndDate, oldStartDate, oldEndDate)) {
+    //             const formattedNewStart = formatDate(newStartDate);
+    //             const formattedNewEnd = formatDate(newEndDate);
+    //             const formattedOldStart = formatDate(oldStartDate);
+    //             const formattedOldEnd = formatDate(oldEndDate);
+
+    //             const errorMessage = `Khoảng thời gian từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`;
+    //             console.error(`❌ DATE OVERLAP DETECTED: ${errorMessage}`);
+    //             throw new Error(errorMessage);
+    //         }
+    //     }
+        
+    //     console.log('✅ Kiểm tra trùng lặp ngày thành công, không có chồng chéo.');
+    // }
+
+
+    async validateWorkHistoryDateOverlap(employeeId, workHistoryData, recruitmentService) {
+        console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, New work period: ${workHistoryData.fromDate} - ${workHistoryData.toDate}`);
+
+        // ✅ BƯỚC 1: Validate khoảng ngày có nằm trong đề xuất tuyển dụng không
+        const recruitmentDetails = await recruitmentService.getRequestByNo(workHistoryData.requestNo);
+        if (recruitmentDetails && recruitmentDetails.fromDate && recruitmentDetails.toDate) {
+            const workStart = new Date(workHistoryData.fromDate);
+            const workEnd = new Date(workHistoryData.toDate);
+            const recruitmentStart = new Date(recruitmentDetails.fromDate);
+            const recruitmentEnd = new Date(recruitmentDetails.toDate);
+
+            // Normalize về đầu ngày để tránh lỗi precision
+            workStart.setHours(0, 0, 0, 0);
+            workEnd.setHours(23, 59, 59, 999);
+            recruitmentStart.setHours(0, 0, 0, 0);
+            recruitmentEnd.setHours(23, 59, 59, 999);
+
+            if (workStart < recruitmentStart || workEnd > recruitmentEnd) {
+                throw new Error(
+                    `Khoảng ngày làm việc (${formatDate(workHistoryData.fromDate)} - ${formatDate(workHistoryData.toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
+                );
+            }
         }
-        const newStartDate = newRequestDetails.fromDate;
-        const newEndDate = newRequestDetails.toDate;
 
+        // ✅ BƯỚC 2: Kiểm tra trùng lặp với work history cũ (ngày thực tế làm việc)
         const existingHistories = await this.getWorkHistoryByEmployee(employeeId);
         if (existingHistories.length === 0) {
-            console.log('✅ Không có lịch sử cũ, không cần kiểm tra.');
+            console.log('✅ Không có lịch sử cũ, không cần kiểm tra overlap.');
             return;
         }
 
+        const newWorkStart = new Date(workHistoryData.fromDate);
+        const newWorkEnd = new Date(workHistoryData.toDate);
+
         for (const oldHistory of existingHistories) {
-            const oldRequestDetails = await recruitmentService.getRequestByNo(oldHistory.requestNo);
-            if (!oldRequestDetails || !oldRequestDetails.fromDate || !oldRequestDetails.toDate) {
-                continue;
+            // ⚠️ QUAN TRỌNG: So sánh với ngày thực tế làm việc, không phải ngày đề xuất
+            if (!oldHistory.fromDate || !oldHistory.toDate) {
+                continue; // Skip nếu không có thông tin ngày
             }
 
-            const oldStartDate = oldRequestDetails.fromDate;
-            const oldEndDate = oldRequestDetails.toDate;
+            const oldWorkStart = new Date(oldHistory.fromDate);
+            const oldWorkEnd = new Date(oldHistory.toDate);
 
-            if (dateRangesOverlap(newStartDate, newEndDate, oldStartDate, oldEndDate)) {
-                const formattedNewStart = formatDate(newStartDate);
-                const formattedNewEnd = formatDate(newEndDate);
-                const formattedOldStart = formatDate(oldStartDate);
-                const formattedOldEnd = formatDate(oldEndDate);
+            // Kiểm tra overlap giữa 2 khoảng ngày thực tế làm việc
+            if (dateRangesOverlap(newWorkStart, newWorkEnd, oldWorkStart, oldWorkEnd)) {
+                const formattedNewStart = formatDate(workHistoryData.fromDate);
+                const formattedNewEnd = formatDate(workHistoryData.toDate);
+                const formattedOldStart = formatDate(oldHistory.fromDate);
+                const formattedOldEnd = formatDate(oldHistory.toDate);
 
-                const errorMessage = `Khoảng thời gian từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`;
-                console.error(`❌ DATE OVERLAP DETECTED: ${errorMessage}`);
-                throw new Error(errorMessage);
+                throw new Error(`Khoảng thời gian làm việc từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`);
             }
         }
         
         console.log('✅ Kiểm tra trùng lặp ngày thành công, không có chồng chéo.');
     }
 
+
+
+
+    // validateWorkHistoryFields(workHistoryData, recruitmentDetails) {
+    //     const { fromDate, toDate, hourlyRate } = workHistoryData;
+        
+    //     if (!fromDate || !toDate) {
+    //         throw new Error('Từ ngày và Đến ngày là bắt buộc.');
+    //     }
+
+    //     const fromDateObj = new Date(fromDate);
+    //     const toDateObj = new Date(toDate);
+        
+    //     if (isNaN(fromDateObj.getTime()) || isNaN(toDateObj.getTime())) {
+    //         throw new Error('Định dạng ngày không hợp lệ.');
+    //     }
+
+    //     if (toDateObj < fromDateObj) {
+    //         throw new Error('Đến ngày phải lớn hơn hoặc bằng Từ ngày.');
+    //     }
+
+    //     if (recruitmentDetails && recruitmentDetails.fromDate && recruitmentDetails.toDate) {
+    //         const recruitmentStart = new Date(recruitmentDetails.fromDate);
+    //         const recruitmentEnd = new Date(recruitmentDetails.toDate);
+
+    //         if (fromDateObj < recruitmentStart || toDateObj > recruitmentEnd) {
+    //             throw new Error(
+    //                 `Khoảng ngày làm việc (${formatDate(fromDate)} - ${formatDate(toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
+    //             );
+    //         }
+    //     }
+
+    //     if (hourlyRate !== undefined && (isNaN(hourlyRate) || hourlyRate < 0)) {
+    //         throw new Error('Mức lương/giờ phải là số và không được âm.');
+    //     }
+    // }
 
     validateWorkHistoryFields(workHistoryData, recruitmentDetails) {
         const { fromDate, toDate, hourlyRate } = workHistoryData;
@@ -252,6 +346,12 @@ class WorkHistoryService extends BaseService {
             const recruitmentStart = new Date(recruitmentDetails.fromDate);
             const recruitmentEnd = new Date(recruitmentDetails.toDate);
 
+            // ✅ SỬA: Normalize về đầu ngày để tránh lỗi precision
+            fromDateObj.setHours(0, 0, 0, 0);
+            toDateObj.setHours(23, 59, 59, 999);  // Cuối ngày để inclusive
+            recruitmentStart.setHours(0, 0, 0, 0);
+            recruitmentEnd.setHours(23, 59, 59, 999);
+
             if (fromDateObj < recruitmentStart || toDateObj > recruitmentEnd) {
                 throw new Error(
                     `Khoảng ngày làm việc (${formatDate(fromDate)} - ${formatDate(toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
@@ -263,6 +363,8 @@ class WorkHistoryService extends BaseService {
             throw new Error('Mức lương/giờ phải là số và không được âm.');
         }
     }
+
+
 
 
     async addWorkHistory(workHistoryData, recruitmentService) {
@@ -278,8 +380,8 @@ class WorkHistoryService extends BaseService {
             }
 
             this.validateWorkHistoryFields(workHistoryData, recruitmentDetails);
-            await this.validateWorkHistoryDateOverlap(employeeId, requestNo, recruitmentService);
-
+            //await this.validateWorkHistoryDateOverlap(employeeId, requestNo, recruitmentService);
+            await this.validateWorkHistoryDateOverlap(employeeId, workHistoryData, recruitmentService);
             const transformedData = this.transformWorkHistoryForLark(workHistoryData);
             
             console.log('📤 WORK HISTORY SERVICE: Sending data to Lark:', transformedData);
@@ -397,6 +499,49 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+    // ✅ THÊM MỚI: Method để xóa tất cả work history của một employee
+    async deleteAllWorkHistoryByEmployee(employeeId) {
+        try {
+            console.log(`🗑️ Deleting all work history for employee: ${employeeId}`);
+            
+            // Lấy tất cả work history của employee
+            const workHistories = await this.getWorkHistoryByEmployee(employeeId);
+            
+            if (workHistories.length === 0) {
+                console.log('ℹ️ No work history to delete for this employee');
+                return { success: true, deletedCount: 0 };
+            }
+            
+            // Xóa từng record
+            const deletePromises = workHistories.map(wh => 
+                this.deleteWorkHistory(wh.id)
+            );
+            
+            const results = await Promise.allSettled(deletePromises);
+            
+            const successful = results.filter(r => r.status === 'fulfilled').length;
+            const failed = results.filter(r => r.status === 'rejected').length;
+            
+            if (failed > 0) {
+                throw new Error(`Failed to delete ${failed} out of ${workHistories.length} work history records`);
+            }
+            
+            console.log(`✅ Successfully deleted ${successful} work history records`);
+            
+            return {
+                success: true,
+                deletedCount: successful,
+                originalCount: workHistories.length
+            };
+            
+        } catch (error) {
+            console.error('❌ Error deleting work history by employee:', error);
+            throw error;
+        }
+    }
+
+
+
 
     async getWorkHistoryById(id) {
         try {
@@ -461,18 +606,42 @@ class WorkHistoryService extends BaseService {
     }
 
 
+    // transformWorkHistoryForLark(workHistoryData) {
+    //     const larkData = {
+    //         'Mã nhân viên': workHistoryData.employeeId,
+    //         'Request No.': workHistoryData.requestNo
+    //     };
+
+    //     if (workHistoryData.fromDate) {
+    //         larkData['Từ ngày'] = workHistoryData.fromDate;
+    //     }
+
+    //     if (workHistoryData.toDate) {
+    //         larkData['Đến ngày'] = workHistoryData.toDate;
+    //     }
+
+    //     if (workHistoryData.hourlyRate !== undefined && workHistoryData.hourlyRate !== null) {
+    //         larkData['Mức lương/giờ'] = parseFloat(workHistoryData.hourlyRate);
+    //     }
+
+    //     return larkData;
+    // }
+
     transformWorkHistoryForLark(workHistoryData) {
         const larkData = {
             'Mã nhân viên': workHistoryData.employeeId,
             'Request No.': workHistoryData.requestNo
         };
 
+        // ✅ Convert string date to timestamp
         if (workHistoryData.fromDate) {
-            larkData['Từ ngày'] = workHistoryData.fromDate;
+            const fromDate = new Date(workHistoryData.fromDate);
+            larkData['Từ ngày'] = fromDate.getTime(); // Convert to timestamp
         }
 
         if (workHistoryData.toDate) {
-            larkData['Đến ngày'] = workHistoryData.toDate;
+            const toDate = new Date(workHistoryData.toDate);
+            larkData['Đến ngày'] = toDate.getTime(); // Convert to timestamp
         }
 
         if (workHistoryData.hourlyRate !== undefined && workHistoryData.hourlyRate !== null) {
@@ -481,6 +650,9 @@ class WorkHistoryService extends BaseService {
 
         return larkData;
     }
+
+
+
 }
 
 

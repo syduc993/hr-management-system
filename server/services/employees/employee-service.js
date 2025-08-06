@@ -19,6 +19,32 @@ class EmployeeService extends BaseService {
         await this.workHistoryService.initializeService();
     }
 
+
+
+    async getEmployeeById(id) {
+        try {
+            console.log(`🔍 Getting employee by ID: ${id}`);
+            
+            const response = await LarkClient.get(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`
+            );
+            
+            if (response.data && response.data.record) {
+                const transformedEmployee = this.transformEmployeeData([response.data.record])[0];
+                console.log('✅ Employee found:', transformedEmployee.employeeId);
+                return transformedEmployee;
+            }
+            
+            console.log('❌ Employee not found');
+            return null;
+            
+        } catch (error) {
+            console.error('❌ Error getting employee by ID:', error);
+            throw error;
+        }
+    }
+
+
     async getAllEmployees() {
         try {
             console.log('📡 EMPLOYEE: Fetching all employees from Lark API (Cache is disabled)...');

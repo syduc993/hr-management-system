@@ -868,7 +868,7 @@ export const getDashboardStats = async (req, res) => {
 // server/controllers/employeeController.js
 import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
-
+import CacheService from '../services/core/cache-service.js';
 class EmployeeController {
     /**
      * Get all employees
@@ -896,12 +896,86 @@ class EmployeeController {
      * Add new employee with work history support
      * @route POST /api/employees
      */
+    // async addEmployee(req, res) {
+    //     try {
+    //         const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
+    //         const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+    //         const employeeService = larkServiceManager.getService('employee');
+    //         const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
+    //         if (isDuplicate) {
+    //             return res.status(409).json(formatResponse(
+    //                 false, 
+    //                 'Mã nhân viên đã tồn tại trong hệ thống', 
+    //                 null, 
+    //                 'DUPLICATE_EMPLOYEE_ID'
+    //             ));
+    //         }
+            
+    //         const employeeData = {
+    //             employeeId,
+    //             fullName,
+    //             phoneNumber,
+    //             gender,
+    //             bankAccount,
+    //             bankName,
+    //             recruitmentLink: workHistoryData.map(item => item.requestNo).join(', '),
+    //             status: 'active',
+    //             createdAt: new Date().toISOString()
+    //         };
+
+    //         const employee = await larkServiceManager.addEmployee(employeeData);
+            
+    //         const workHistoryResults = [];
+    //         for (const historyEntry of workHistoryData) {
+    //             const workHistoryExists = await larkServiceManager.checkWorkHistoryExists(employeeId, historyEntry.requestNo);
+    //             if (workHistoryExists) {
+    //                 return res.status(409).json(formatResponse(
+    //                     false, 
+    //                     `Work History đã tồn tại: ${employeeId} - ${historyEntry.requestNo}`, 
+    //                     null, 
+    //                     'DUPLICATE_WORK_HISTORY'
+    //                 ));
+    //             }
+                
+    //             const workHistory = await larkServiceManager.addWorkHistory({
+    //                 employeeId,
+    //                 requestNo: historyEntry.requestNo,
+    //                 fromDate: historyEntry.fromDate,
+    //                 toDate: historyEntry.toDate,
+    //                 hourlyRate: historyEntry.hourlyRate
+    //             });
+    //             workHistoryResults.push(workHistory);
+    //         }
+
+    //         console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
+            
+    //         res.json(formatResponse(true, 'Thêm nhân viên thành công', {
+    //             employee,
+    //             workHistory: workHistoryResults
+    //         }));
+            
+    //     } catch (error) {
+    //         console.error('❌ Controller: addEmployee failed:', error);
+    //         res.status(500).json(formatResponse(
+    //             false, 
+    //             `Lỗi hệ thống khi thêm nhân viên: ${error.message}`, 
+    //             null, 
+    //             'EMPLOYEE_ADD_FAILED'
+    //         ));
+    //     }
+    // }
+
+
     async addEmployee(req, res) {
+        let createdEmployee = null;
+        let createdWorkHistories = [];
+        
         try {
             const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
             const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
-            const employeeService = larkServiceManager.getService('employee');
-            const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
+            
+            // ✅ STEP 1: Kiểm tra duplicate trước khi tạo bất kỳ record nào
+            const isDuplicate = await larkServiceManager.getService('employee').checkEmployeeIdExists(employeeId);
             if (isDuplicate) {
                 return res.status(409).json(formatResponse(
                     false, 
@@ -910,7 +984,34 @@ class EmployeeController {
                     'DUPLICATE_EMPLOYEE_ID'
                 ));
             }
+
+            // ✅ STEP 2: Validate work history TRƯỚC KHI tạo employee
+            const recruitmentService = larkServiceManager.getService('recruitment');
+            const workHistoryService = larkServiceManager.getService('workHistory');
             
+            for (const historyEntry of workHistoryData) {
+                // Validate work history trước
+                const recruitmentDetails = await recruitmentService.getRequestByNo(historyEntry.requestNo);
+                if (!recruitmentDetails) {
+                    throw new Error(`Không tìm thấy đề xuất tuyển dụng với mã: ${historyEntry.requestNo}`);
+                }
+                
+                // Validate ngày tháng
+                workHistoryService.validateWorkHistoryFields({
+                    fromDate: historyEntry.fromDate,
+                    toDate: historyEntry.toDate,
+                    hourlyRate: historyEntry.hourlyRate
+                }, recruitmentDetails);
+                
+                // Validate date overlap
+                await workHistoryService.validateWorkHistoryDateOverlap(
+                    employeeId, 
+                    historyEntry.requestNo, 
+                    recruitmentService
+                );
+            }
+
+            // ✅ STEP 3: Nếu validation pass, mới tạo employee
             const employeeData = {
                 employeeId,
                 fullName,
@@ -923,60 +1024,174 @@ class EmployeeController {
                 createdAt: new Date().toISOString()
             };
 
-            const employee = await larkServiceManager.addEmployee(employeeData);
+            console.log('✅ All validations passed, creating employee...');
+            createdEmployee = await larkServiceManager.addEmployee(employeeData);
             
+            // ✅ STEP 4: Tạo work history
+            console.log('✅ Employee created, creating work histories...');
             const workHistoryResults = [];
+            
             for (const historyEntry of workHistoryData) {
-                const workHistoryExists = await larkServiceManager.checkWorkHistoryExists(employeeId, historyEntry.requestNo);
-                if (workHistoryExists) {
-                    return res.status(409).json(formatResponse(
-                        false, 
-                        `Work History đã tồn tại: ${employeeId} - ${historyEntry.requestNo}`, 
-                        null, 
-                        'DUPLICATE_WORK_HISTORY'
-                    ));
+                try {
+                    const workHistory = await larkServiceManager.addWorkHistory({
+                        employeeId,
+                        requestNo: historyEntry.requestNo,
+                        fromDate: historyEntry.fromDate,
+                        toDate: historyEntry.toDate,
+                        hourlyRate: historyEntry.hourlyRate
+                    });
+                    workHistoryResults.push(workHistory);
+                    createdWorkHistories.push(workHistory); // Track for rollback
+                } catch (workHistoryError) {
+                    console.error('❌ Work history creation failed:', workHistoryError);
+                    
+                    // ✅ ROLLBACK: Xóa employee và work histories đã tạo
+                    await this.rollbackEmployeeCreation(createdEmployee.employee, createdWorkHistories);
+                    
+                    throw new Error(`Lỗi khi tạo work history: ${workHistoryError.message}`);
                 }
-                
-                const workHistory = await larkServiceManager.addWorkHistory({
-                    employeeId,
-                    requestNo: historyEntry.requestNo,
-                    fromDate: historyEntry.fromDate,
-                    toDate: historyEntry.toDate,
-                    hourlyRate: historyEntry.hourlyRate
-                });
-                workHistoryResults.push(workHistory);
             }
 
-            console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
-            
+            console.log('✅ All work histories created successfully');
+
             res.json(formatResponse(true, 'Thêm nhân viên thành công', {
-                employee,
+                employee: createdEmployee,
                 workHistory: workHistoryResults
             }));
             
         } catch (error) {
-            console.error('❌ Controller: addEmployee failed:', error);
+            console.error('❌ Employee creation failed:', error);
+            
+            // ✅ ROLLBACK nếu có lỗi
+            if (createdEmployee) {
+                await this.rollbackEmployeeCreation(createdEmployee.employee, createdWorkHistories);
+            }
+            
+            // Trả về lỗi cụ thể cho frontend
             res.status(500).json(formatResponse(
                 false, 
-                `Lỗi hệ thống khi thêm nhân viên: ${error.message}`, 
+                error.message || 'Lỗi hệ thống khi thêm nhân viên', 
                 null, 
                 'EMPLOYEE_ADD_FAILED'
             ));
         }
     }
 
+    // ✅ THÊM: Method rollback
+    async rollbackEmployeeCreation(employee, createdWorkHistories) {
+        console.log('🔄 ROLLBACK: Starting cleanup...');
+        
+        try {
+            // Xóa work histories đã tạo
+            for (const workHistory of createdWorkHistories) {
+                if (workHistory && workHistory.larkResponse && workHistory.larkResponse.data) {
+                    try {
+                        await larkServiceManager.getService('workHistory').deleteWorkHistory(
+                            workHistory.larkResponse.data.record.record_id
+                        );
+                        console.log('✅ ROLLBACK: Deleted work history', workHistory.larkResponse.data.record.record_id);
+                    } catch (whDeleteError) {
+                        console.error('❌ ROLLBACK: Failed to delete work history', whDeleteError);
+                    }
+                }
+            }
+            
+            // Xóa employee
+            if (employee && employee.larkResponse && employee.larkResponse.data) {
+                try {
+                    await larkServiceManager.getService('employee').deleteEmployee(
+                        employee.larkResponse.data.record_id
+                    );
+                    console.log('✅ ROLLBACK: Deleted employee', employee.larkResponse.data.record_id);
+                } catch (empDeleteError) {
+                    console.error('❌ ROLLBACK: Failed to delete employee', empDeleteError);
+                }
+            }
+            
+            console.log('✅ ROLLBACK: Cleanup completed');
+        } catch (rollbackError) {
+            console.error('❌ ROLLBACK: Critical error during cleanup:', rollbackError);
+        }
+    }
+
+
+
+
+
+
+
     /**
      * Update employee
      * @route PUT /api/employees/:id
      */
+    // async updateEmployee(req, res) {
+    //     try {
+    //         const { id } = req.params;
+    //         const { fullName, phoneNumber, gender, bankAccount, bankName, recruitmentLink, status } = req.body;
+            
+    //         const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+    //         const updatedData = {
+    //             employeeId,
+    //             fullName,
+    //             phoneNumber,
+    //             gender,
+    //             bankAccount,
+    //             bankName,
+    //             recruitmentLink: recruitmentLink || '',
+    //             status,
+    //             updatedAt: new Date().toISOString()
+    //         };
+            
+    //         const employee = await larkServiceManager.updateEmployee(id, updatedData);
+            
+    //         console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
+            
+    //         res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
+            
+    //     } catch (error) {
+    //         console.error('❌ Controller: updateEmployee failed:', error);
+    //         res.status(500).json(formatResponse(
+    //             false, 
+    //             `Lỗi khi cập nhật nhân viên: ${error.message}`, 
+    //             null, 
+    //             'EMPLOYEE_UPDATE_FAILED'
+    //         ));
+    //     }
+    // }
+
+
+
     async updateEmployee(req, res) {
         try {
             const { id } = req.params;
             const { fullName, phoneNumber, gender, bankAccount, bankName, recruitmentLink, status } = req.body;
             
-            const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+            // ✅ STEP 1: Lấy thông tin employee cũ trước khi update
+            console.log('📋 Getting old employee data for comparison...');
+            const oldEmployee = await larkServiceManager.getService('employee').getEmployeeById(id);
+            if (!oldEmployee) {
+                return res.status(404).json(formatResponse(
+                    false, 
+                    'Không tìm thấy nhân viên cần cập nhật', 
+                    null, 
+                    'EMPLOYEE_NOT_FOUND'
+                ));
+            }
+            
+            const oldEmployeeId = oldEmployee.employeeId;
+            
+            // ✅ STEP 2: Tạo mã nhân viên mới
+            const newEmployeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
+            
+            console.log('🔍 Comparing employee IDs:', {
+                old: oldEmployeeId,
+                new: newEmployeeId,
+                changed: oldEmployeeId !== newEmployeeId
+            });
+            
+            // ✅ STEP 3: Update employee data
             const updatedData = {
-                employeeId,
+                employeeId: newEmployeeId,
                 fullName,
                 phoneNumber,
                 gender,
@@ -989,7 +1204,13 @@ class EmployeeController {
             
             const employee = await larkServiceManager.updateEmployee(id, updatedData);
             
-            console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
+            // ✅ STEP 4: Nếu mã nhân viên thay đổi, cập nhật work history
+            if (oldEmployeeId !== newEmployeeId) {
+                console.log('🔄 Employee ID changed, updating work history records...');
+                await this.updateWorkHistoryEmployeeId(oldEmployeeId, newEmployeeId);
+            }
+            
+            console.log('✅ Employee updated successfully, clearing cache...');
             
             res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
             
@@ -1004,18 +1225,156 @@ class EmployeeController {
         }
     }
 
+    // ✅ THÊM: Method cập nhật employeeId trong work history
+    async updateWorkHistoryEmployeeId(oldEmployeeId, newEmployeeId) {
+        try {
+            console.log(`🔄 Updating work history: ${oldEmployeeId} -> ${newEmployeeId}`);
+            
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            
+            // Lấy tất cả work history của employee cũ
+            const workHistories = await workHistoryService.getWorkHistoryByEmployee(oldEmployeeId);
+            
+            if (workHistories.length === 0) {
+                console.log('ℹ️ No work history records to update');
+                return;
+            }
+            
+            console.log(`📋 Found ${workHistories.length} work history records to update`);
+            
+            // Cập nhật từng record
+            const updatePromises = workHistories.map(async (workHistory) => {
+                try {
+                    await workHistoryService.updateWorkHistory(workHistory.id, {
+                        employeeId: newEmployeeId,
+                        requestNo: workHistory.requestNo,
+                        fromDate: workHistory.fromDate,
+                        toDate: workHistory.toDate,
+                        hourlyRate: workHistory.hourlyRate
+                    });
+                    
+                    console.log(`✅ Updated work history record: ${workHistory.id}`);
+                    return { success: true, id: workHistory.id };
+                } catch (updateError) {
+                    console.error(`❌ Failed to update work history ${workHistory.id}:`, updateError);
+                    return { success: false, id: workHistory.id, error: updateError.message };
+                }
+            });
+            
+            const results = await Promise.all(updatePromises);
+            
+            const successCount = results.filter(r => r.success).length;
+            const failedCount = results.length - successCount;
+            
+            console.log(`📊 Work history update results: ${successCount} success, ${failedCount} failed`);
+            
+            if (failedCount > 0) {
+                const failedIds = results.filter(r => !r.success).map(r => r.id);
+                console.warn('⚠️ Some work history records failed to update:', failedIds);
+                // Có thể log warning nhưng không throw error để không làm fail employee update
+            }
+            
+        } catch (error) {
+            console.error('❌ Critical error updating work history employee IDs:', error);
+            // Log error nhưng không throw để không làm fail employee update
+        }
+    }
+
+
+
+
+
+
     /**
      * Delete employee
      * @route DELETE /api/employees/:id
      */
+    // async deleteEmployee(req, res) {
+    //     try {
+    //         const { id } = req.params;
+    //         await larkServiceManager.deleteEmployee(id);
+            
+    //         console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
+            
+    //         res.json(formatResponse(true, 'Xóa nhân viên thành công'));
+    //     } catch (error) {
+    //         console.error('❌ Controller: deleteEmployee failed:', error);
+    //         res.status(500).json(formatResponse(
+    //             false, 
+    //             `Lỗi khi xóa nhân viên: ${error.message}`, 
+    //             null, 
+    //             'EMPLOYEE_DELETE_FAILED'
+    //         ));
+    //     }
+    // }
+
+
     async deleteEmployee(req, res) {
         try {
             const { id } = req.params;
+            
+            // STEP 1: Lấy thông tin employee trước khi xóa
+            console.log(`🔍 Getting employee info before deletion: ${id}`);
+            const employee = await larkServiceManager.getService('employee').getEmployeeById(id);
+            
+            if (!employee) {
+                return res.status(404).json(formatResponse(
+                    false, 
+                    'Không tìm thấy nhân viên cần xóa', 
+                    null, 
+                    'EMPLOYEE_NOT_FOUND'
+                ));
+            }
+            
+            const employeeId = employee.employeeId;
+            console.log(`👤 Employee to delete: ${employee.fullName} (${employeeId})`);
+            
+            // STEP 2: Lấy danh sách work history cần xóa
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            const workHistories = await workHistoryService.getWorkHistoryByEmployee(employeeId);
+            
+            console.log(`📋 Found ${workHistories.length} work history records to delete`);
+            
+            // STEP 3: Xóa tất cả work history trước
+            const deleteWorkHistoryPromises = workHistories.map(async (wh) => {
+                try {
+                    await workHistoryService.deleteWorkHistory(wh.id);
+                    console.log(`✅ Deleted work history: ${wh.id} (${wh.requestNo})`);
+                    return { success: true, id: wh.id };
+                } catch (error) {
+                    console.error(`❌ Failed to delete work history ${wh.id}:`, error);
+                    return { success: false, id: wh.id, error: error.message };
+                }
+            });
+            
+            const workHistoryResults = await Promise.all(deleteWorkHistoryPromises);
+            const failedDeletions = workHistoryResults.filter(r => !r.success);
+            
+            if (failedDeletions.length > 0) {
+                console.error(`❌ Failed to delete ${failedDeletions.length} work history records`);
+                return res.status(500).json(formatResponse(
+                    false,
+                    `Không thể xóa hoàn toàn dữ liệu. ${failedDeletions.length} work history records failed to delete.`,
+                    { failedDeletions },
+                    'WORK_HISTORY_DELETE_FAILED'
+                ));
+            }
+            
+            // STEP 4: Xóa employee sau khi đã xóa hết work history
+            console.log(`🗑️ All work histories deleted successfully. Now deleting employee...`);
             await larkServiceManager.deleteEmployee(id);
             
-            console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
+            console.log(`✅ Successfully deleted employee ${employee.fullName} and ${workHistories.length} work history records`);
             
-            res.json(formatResponse(true, 'Xóa nhân viên thành công'));
+            res.json(formatResponse(
+                true, 
+                `Xóa nhân viên "${employee.fullName}" và ${workHistories.length} bản ghi lịch sử công việc thành công`,
+                {
+                    deletedEmployee: employee.fullName,
+                    deletedWorkHistories: workHistories.length
+                }
+            ));
+            
         } catch (error) {
             console.error('❌ Controller: deleteEmployee failed:', error);
             res.status(500).json(formatResponse(
@@ -1026,6 +1385,8 @@ class EmployeeController {
             ));
         }
     }
+
+
 
     /**
      * Search employees
@@ -1073,9 +1434,12 @@ class EmployeeController {
      */
     async addWorkHistory(req, res) {
         try {
+            
             // ✅ CẬP NHẬT: Nhận thêm các trường mới từ request body
             const { employeeId, requestNo, fromDate, toDate, hourlyRate } = req.body;
-            
+
+            CacheService.clear();
+
             if (!employeeId || !requestNo) {
                 return res.status(400).json(formatResponse(
                     false, 
@@ -2907,16 +3271,23 @@ class LarkClient {
             throw error;
         }
     }
-
+    
     async get(endpoint, params = {}) {
         console.log('📥 GET request:', endpoint, params);
-        return this.request(endpoint, { method: 'GET', params });
+        
+        // ✅ SỬA: Đổi tên biến để tránh conflict
+        const queryParams = params;
+        
+        return this.request(endpoint, { 
+            method: 'GET', 
+            params: queryParams 
+        });
     }
 
     // ✅ ================================================================
     // ✅ PHƯƠNG THỨC MỚI ĐỂ LẤY TOÀN BỘ DỮ LIỆU (CÓ PAGINATION)
     // ✅ ================================================================
-    async getAllRecords(endpoint, pageSize = 100) {
+    async getAllRecords(endpoint, pageSize = 100, filterParams = {}) {
         console.log(`📚 Getting ALL records from: ${endpoint}`);
         
         let allRecords = [];
@@ -2932,6 +3303,12 @@ class LarkClient {
                 page_size: pageSize
             };
             
+            // ✅ SỬA: Thêm filter params nếu có
+            if (filterParams && Object.keys(filterParams).length > 0) {
+                Object.assign(requestParams, filterParams);
+            }
+
+
             if (pageToken) {
                 params.page_token = pageToken;
             }
@@ -2949,8 +3326,8 @@ class LarkClient {
             pageToken = response.data?.page_token || null;
             
             // Safety break để tránh infinite loop
-            if (pageCount > 50) { // Giới hạn 50 trang (tối đa 5000 records)
-                console.warn('⚠️ Reached maximum page limit (50 pages)');
+            if (pageCount > 200) { // Giới hạn 200 trang (tối đa 20000 records)
+                console.warn('⚠️ Reached maximum page limit (200 pages)');
                 break;
             }
         }
@@ -3009,6 +3386,32 @@ class EmployeeService extends BaseService {
         console.log('Initializing Employee Service...');
         await this.workHistoryService.initializeService();
     }
+
+
+
+    async getEmployeeById(id) {
+        try {
+            console.log(`🔍 Getting employee by ID: ${id}`);
+            
+            const response = await LarkClient.get(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`
+            );
+            
+            if (response.data && response.data.record) {
+                const transformedEmployee = this.transformEmployeeData([response.data.record])[0];
+                console.log('✅ Employee found:', transformedEmployee.employeeId);
+                return transformedEmployee;
+            }
+            
+            console.log('❌ Employee not found');
+            return null;
+            
+        } catch (error) {
+            console.error('❌ Error getting employee by ID:', error);
+            throw error;
+        }
+    }
+
 
     async getAllEmployees() {
         try {
@@ -3439,47 +3842,141 @@ class WorkHistoryService extends BaseService {
     }
 
 
-    async validateWorkHistoryDateOverlap(employeeId, newRequestNo, recruitmentService) {
-        console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, Request ${newRequestNo}`);
+    // async validateWorkHistoryDateOverlap(employeeId, newRequestNo, recruitmentService) {
+    //     console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, Request ${newRequestNo}`);
 
-        const newRequestDetails = await recruitmentService.getRequestByNo(newRequestNo);
-        if (!newRequestDetails.fromDate || !newRequestDetails.toDate) {
-            console.warn(`⚠️ Không tìm thấy ngày cho Request No. ${newRequestNo}, bỏ qua kiểm tra trùng lặp.`);
-            return;
+    //     const newRequestDetails = await recruitmentService.getRequestByNo(newRequestNo);
+    //     if (!newRequestDetails.fromDate || !newRequestDetails.toDate) {
+    //         console.warn(`⚠️ Không tìm thấy ngày cho Request No. ${newRequestNo}, bỏ qua kiểm tra trùng lặp.`);
+    //         return;
+    //     }
+    //     const newStartDate = newRequestDetails.fromDate;
+    //     const newEndDate = newRequestDetails.toDate;
+
+    //     const existingHistories = await this.getWorkHistoryByEmployee(employeeId);
+    //     if (existingHistories.length === 0) {
+    //         console.log('✅ Không có lịch sử cũ, không cần kiểm tra.');
+    //         return;
+    //     }
+
+    //     for (const oldHistory of existingHistories) {
+    //         const oldRequestDetails = await recruitmentService.getRequestByNo(oldHistory.requestNo);
+    //         if (!oldRequestDetails || !oldRequestDetails.fromDate || !oldRequestDetails.toDate) {
+    //             continue;
+    //         }
+
+    //         const oldStartDate = oldRequestDetails.fromDate;
+    //         const oldEndDate = oldRequestDetails.toDate;
+
+    //         if (dateRangesOverlap(newStartDate, newEndDate, oldStartDate, oldEndDate)) {
+    //             const formattedNewStart = formatDate(newStartDate);
+    //             const formattedNewEnd = formatDate(newEndDate);
+    //             const formattedOldStart = formatDate(oldStartDate);
+    //             const formattedOldEnd = formatDate(oldEndDate);
+
+    //             const errorMessage = `Khoảng thời gian từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`;
+    //             console.error(`❌ DATE OVERLAP DETECTED: ${errorMessage}`);
+    //             throw new Error(errorMessage);
+    //         }
+    //     }
+        
+    //     console.log('✅ Kiểm tra trùng lặp ngày thành công, không có chồng chéo.');
+    // }
+
+
+    async validateWorkHistoryDateOverlap(employeeId, workHistoryData, recruitmentService) {
+        console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, New work period: ${workHistoryData.fromDate} - ${workHistoryData.toDate}`);
+
+        // ✅ BƯỚC 1: Validate khoảng ngày có nằm trong đề xuất tuyển dụng không
+        const recruitmentDetails = await recruitmentService.getRequestByNo(workHistoryData.requestNo);
+        if (recruitmentDetails && recruitmentDetails.fromDate && recruitmentDetails.toDate) {
+            const workStart = new Date(workHistoryData.fromDate);
+            const workEnd = new Date(workHistoryData.toDate);
+            const recruitmentStart = new Date(recruitmentDetails.fromDate);
+            const recruitmentEnd = new Date(recruitmentDetails.toDate);
+
+            // Normalize về đầu ngày để tránh lỗi precision
+            workStart.setHours(0, 0, 0, 0);
+            workEnd.setHours(23, 59, 59, 999);
+            recruitmentStart.setHours(0, 0, 0, 0);
+            recruitmentEnd.setHours(23, 59, 59, 999);
+
+            if (workStart < recruitmentStart || workEnd > recruitmentEnd) {
+                throw new Error(
+                    `Khoảng ngày làm việc (${formatDate(workHistoryData.fromDate)} - ${formatDate(workHistoryData.toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
+                );
+            }
         }
-        const newStartDate = newRequestDetails.fromDate;
-        const newEndDate = newRequestDetails.toDate;
 
+        // ✅ BƯỚC 2: Kiểm tra trùng lặp với work history cũ (ngày thực tế làm việc)
         const existingHistories = await this.getWorkHistoryByEmployee(employeeId);
         if (existingHistories.length === 0) {
-            console.log('✅ Không có lịch sử cũ, không cần kiểm tra.');
+            console.log('✅ Không có lịch sử cũ, không cần kiểm tra overlap.');
             return;
         }
 
+        const newWorkStart = new Date(workHistoryData.fromDate);
+        const newWorkEnd = new Date(workHistoryData.toDate);
+
         for (const oldHistory of existingHistories) {
-            const oldRequestDetails = await recruitmentService.getRequestByNo(oldHistory.requestNo);
-            if (!oldRequestDetails || !oldRequestDetails.fromDate || !oldRequestDetails.toDate) {
-                continue;
+            // ⚠️ QUAN TRỌNG: So sánh với ngày thực tế làm việc, không phải ngày đề xuất
+            if (!oldHistory.fromDate || !oldHistory.toDate) {
+                continue; // Skip nếu không có thông tin ngày
             }
 
-            const oldStartDate = oldRequestDetails.fromDate;
-            const oldEndDate = oldRequestDetails.toDate;
+            const oldWorkStart = new Date(oldHistory.fromDate);
+            const oldWorkEnd = new Date(oldHistory.toDate);
 
-            if (dateRangesOverlap(newStartDate, newEndDate, oldStartDate, oldEndDate)) {
-                const formattedNewStart = formatDate(newStartDate);
-                const formattedNewEnd = formatDate(newEndDate);
-                const formattedOldStart = formatDate(oldStartDate);
-                const formattedOldEnd = formatDate(oldEndDate);
+            // Kiểm tra overlap giữa 2 khoảng ngày thực tế làm việc
+            if (dateRangesOverlap(newWorkStart, newWorkEnd, oldWorkStart, oldWorkEnd)) {
+                const formattedNewStart = formatDate(workHistoryData.fromDate);
+                const formattedNewEnd = formatDate(workHistoryData.toDate);
+                const formattedOldStart = formatDate(oldHistory.fromDate);
+                const formattedOldEnd = formatDate(oldHistory.toDate);
 
-                const errorMessage = `Khoảng thời gian từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`;
-                console.error(`❌ DATE OVERLAP DETECTED: ${errorMessage}`);
-                throw new Error(errorMessage);
+                throw new Error(`Khoảng thời gian làm việc từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`);
             }
         }
         
         console.log('✅ Kiểm tra trùng lặp ngày thành công, không có chồng chéo.');
     }
 
+
+
+
+    // validateWorkHistoryFields(workHistoryData, recruitmentDetails) {
+    //     const { fromDate, toDate, hourlyRate } = workHistoryData;
+        
+    //     if (!fromDate || !toDate) {
+    //         throw new Error('Từ ngày và Đến ngày là bắt buộc.');
+    //     }
+
+    //     const fromDateObj = new Date(fromDate);
+    //     const toDateObj = new Date(toDate);
+        
+    //     if (isNaN(fromDateObj.getTime()) || isNaN(toDateObj.getTime())) {
+    //         throw new Error('Định dạng ngày không hợp lệ.');
+    //     }
+
+    //     if (toDateObj < fromDateObj) {
+    //         throw new Error('Đến ngày phải lớn hơn hoặc bằng Từ ngày.');
+    //     }
+
+    //     if (recruitmentDetails && recruitmentDetails.fromDate && recruitmentDetails.toDate) {
+    //         const recruitmentStart = new Date(recruitmentDetails.fromDate);
+    //         const recruitmentEnd = new Date(recruitmentDetails.toDate);
+
+    //         if (fromDateObj < recruitmentStart || toDateObj > recruitmentEnd) {
+    //             throw new Error(
+    //                 `Khoảng ngày làm việc (${formatDate(fromDate)} - ${formatDate(toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
+    //             );
+    //         }
+    //     }
+
+    //     if (hourlyRate !== undefined && (isNaN(hourlyRate) || hourlyRate < 0)) {
+    //         throw new Error('Mức lương/giờ phải là số và không được âm.');
+    //     }
+    // }
 
     validateWorkHistoryFields(workHistoryData, recruitmentDetails) {
         const { fromDate, toDate, hourlyRate } = workHistoryData;
@@ -3503,6 +4000,12 @@ class WorkHistoryService extends BaseService {
             const recruitmentStart = new Date(recruitmentDetails.fromDate);
             const recruitmentEnd = new Date(recruitmentDetails.toDate);
 
+            // ✅ SỬA: Normalize về đầu ngày để tránh lỗi precision
+            fromDateObj.setHours(0, 0, 0, 0);
+            toDateObj.setHours(23, 59, 59, 999);  // Cuối ngày để inclusive
+            recruitmentStart.setHours(0, 0, 0, 0);
+            recruitmentEnd.setHours(23, 59, 59, 999);
+
             if (fromDateObj < recruitmentStart || toDateObj > recruitmentEnd) {
                 throw new Error(
                     `Khoảng ngày làm việc (${formatDate(fromDate)} - ${formatDate(toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
@@ -3514,6 +4017,8 @@ class WorkHistoryService extends BaseService {
             throw new Error('Mức lương/giờ phải là số và không được âm.');
         }
     }
+
+
 
 
     async addWorkHistory(workHistoryData, recruitmentService) {
@@ -3529,8 +4034,8 @@ class WorkHistoryService extends BaseService {
             }
 
             this.validateWorkHistoryFields(workHistoryData, recruitmentDetails);
-            await this.validateWorkHistoryDateOverlap(employeeId, requestNo, recruitmentService);
-
+            //await this.validateWorkHistoryDateOverlap(employeeId, requestNo, recruitmentService);
+            await this.validateWorkHistoryDateOverlap(employeeId, workHistoryData, recruitmentService);
             const transformedData = this.transformWorkHistoryForLark(workHistoryData);
             
             console.log('📤 WORK HISTORY SERVICE: Sending data to Lark:', transformedData);
@@ -3648,6 +4153,49 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+    // ✅ THÊM MỚI: Method để xóa tất cả work history của một employee
+    async deleteAllWorkHistoryByEmployee(employeeId) {
+        try {
+            console.log(`🗑️ Deleting all work history for employee: ${employeeId}`);
+            
+            // Lấy tất cả work history của employee
+            const workHistories = await this.getWorkHistoryByEmployee(employeeId);
+            
+            if (workHistories.length === 0) {
+                console.log('ℹ️ No work history to delete for this employee');
+                return { success: true, deletedCount: 0 };
+            }
+            
+            // Xóa từng record
+            const deletePromises = workHistories.map(wh => 
+                this.deleteWorkHistory(wh.id)
+            );
+            
+            const results = await Promise.allSettled(deletePromises);
+            
+            const successful = results.filter(r => r.status === 'fulfilled').length;
+            const failed = results.filter(r => r.status === 'rejected').length;
+            
+            if (failed > 0) {
+                throw new Error(`Failed to delete ${failed} out of ${workHistories.length} work history records`);
+            }
+            
+            console.log(`✅ Successfully deleted ${successful} work history records`);
+            
+            return {
+                success: true,
+                deletedCount: successful,
+                originalCount: workHistories.length
+            };
+            
+        } catch (error) {
+            console.error('❌ Error deleting work history by employee:', error);
+            throw error;
+        }
+    }
+
+
+
 
     async getWorkHistoryById(id) {
         try {
@@ -3712,18 +4260,42 @@ class WorkHistoryService extends BaseService {
     }
 
 
+    // transformWorkHistoryForLark(workHistoryData) {
+    //     const larkData = {
+    //         'Mã nhân viên': workHistoryData.employeeId,
+    //         'Request No.': workHistoryData.requestNo
+    //     };
+
+    //     if (workHistoryData.fromDate) {
+    //         larkData['Từ ngày'] = workHistoryData.fromDate;
+    //     }
+
+    //     if (workHistoryData.toDate) {
+    //         larkData['Đến ngày'] = workHistoryData.toDate;
+    //     }
+
+    //     if (workHistoryData.hourlyRate !== undefined && workHistoryData.hourlyRate !== null) {
+    //         larkData['Mức lương/giờ'] = parseFloat(workHistoryData.hourlyRate);
+    //     }
+
+    //     return larkData;
+    // }
+
     transformWorkHistoryForLark(workHistoryData) {
         const larkData = {
             'Mã nhân viên': workHistoryData.employeeId,
             'Request No.': workHistoryData.requestNo
         };
 
+        // ✅ Convert string date to timestamp
         if (workHistoryData.fromDate) {
-            larkData['Từ ngày'] = workHistoryData.fromDate;
+            const fromDate = new Date(workHistoryData.fromDate);
+            larkData['Từ ngày'] = fromDate.getTime(); // Convert to timestamp
         }
 
         if (workHistoryData.toDate) {
-            larkData['Đến ngày'] = workHistoryData.toDate;
+            const toDate = new Date(workHistoryData.toDate);
+            larkData['Đến ngày'] = toDate.getTime(); // Convert to timestamp
         }
 
         if (workHistoryData.hourlyRate !== undefined && workHistoryData.hourlyRate !== null) {
@@ -3732,6 +4304,9 @@ class WorkHistoryService extends BaseService {
 
         return larkData;
     }
+
+
+
 }
 
 
@@ -4204,51 +4779,45 @@ class RecruitmentService extends BaseService {
         console.log('Initializing Recruitment Service...');
     }
 
+
     async getRecruitmentRequests(filters = {}) {
-        const cacheKey = `recruitment_requests_${JSON.stringify(filters)}`;
-        let requests = CacheService.get(cacheKey);
-
-        if (requests) {
-            console.log(`✅ RECRUITMENT: Loaded ${requests.length} requests from cache.`);
-            return requests;
-        }
-
         try {
-            console.log('📡 RECRUITMENT: Fetching all recruitment requests from Lark...');
-
-            const params = {};
-            const filterClauses = [];
-
-            if (filters.status) {
-                filterClauses.push(`CurrentValue.[Status] = "${filters.status}"`);
-            }
-            if (filters.department) {
-                filterClauses.push(`CurrentValue.[Details_Phòng ban] = "${filters.department}"`);
-            }
-
-            if (filterClauses.length > 0) {
-                params.filter = `AND(${filterClauses.join(', ')})`;
-            }
-
+            console.log('📡 RECRUITMENT: Fetching ALL recruitment requests from Lark...');
+            
             const response = await LarkClient.getAllRecords(
-                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`,
-                params
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
             );
 
-            requests = this.transformRecruitmentData(response.data?.items || []);
-            console.log(`✅ RECRUITMENT: Transformed ${requests.length} total records from Lark.`);
+            let requests = this.transformRecruitmentData(response.data?.items || []);
+            console.log(`✅ RECRUITMENT: Retrieved ${requests.length} total records from Lark`);
+            
+            // ✅ SỬA: Filter ở application level - chỉ lấy chính xác "Approved" và "Under Review"
+            if (filters.status) {
+                const statusArray = Array.isArray(filters.status) 
+                    ? filters.status 
+                    : filters.status.split(',').map(s => s.trim());
+                
+                console.log('🔍 RECRUITMENT: Filtering by status:', statusArray);
+                
+                requests = requests.filter(request => {
+                    const requestStatus = request.status;
+                    console.log(`📝 Checking: ${request.requestNo} - Status: "${requestStatus}"`);
+                    
+                    // ✅ ĐƠN GIẢN: Chỉ kiểm tra exact match
+                    return statusArray.includes(requestStatus);
+                });
+            }
 
-            CacheService.set(cacheKey, requests, 300000);
-            console.log(`✅ RECRUITMENT: Cached ${requests.length} records.`);
-
+            console.log(`✅ RECRUITMENT: After filtering: ${requests.length} records`);
+            return requests;
+            
         } catch (error) {
             console.error('❌ Error fetching recruitment requests:', error);
-            requests = [];
             throw error;
         }
-
-        return requests;
     }
+
+
 
     async addRecruitmentRequest(requestData) {
         // Giữ nguyên logic
@@ -4259,11 +4828,36 @@ class RecruitmentService extends BaseService {
     }
 
 
+    // async getRequestByNo(requestNo) {
+    //     console.log('🔍 RECRUITMENT: Searching for request number:', requestNo);
+
+    //     // BƯỚC 1: Chủ động lấy TẤT CẢ các đề xuất tuyển dụng.
+    //     // Hàm này sẽ tự động dùng cache nếu có, hoặc gọi API nếu không.
+    //     const allRequests = await this.getRecruitmentRequests();
+        
+    //     if (!allRequests || allRequests.length === 0) {
+    //         console.log('⚠️ RECRUITMENT: No requests found to search in.');
+    //         return null;
+    //     }
+
+    //     // BƯỚC 2: Tìm kiếm trên danh sách `allRequests` vừa lấy được.
+    //     // Logic tìm kiếm bên trong `find` vẫn giữ nguyên.
+    //     const found = allRequests.find(record => {
+    //         // `record` ở đây đã được transform bởi `transformRecruitmentData`
+    //         // nên nó là một object phẳng, không cần `record.fields`.
+    //         const requestValue = record.requestNo;
+            
+    //         return String(requestValue || '').trim() === String(requestNo).trim();
+    //     });
+
+    //     console.log('🔍 RECRUITMENT: Search result:', found ? 'FOUND' : 'NOT_FOUND');
+    //     return found;
+    // }
+
+
     async getRequestByNo(requestNo) {
         console.log('🔍 RECRUITMENT: Searching for request number:', requestNo);
 
-        // BƯỚC 1: Chủ động lấy TẤT CẢ các đề xuất tuyển dụng.
-        // Hàm này sẽ tự động dùng cache nếu có, hoặc gọi API nếu không.
         const allRequests = await this.getRecruitmentRequests();
         
         if (!allRequests || allRequests.length === 0) {
@@ -4271,19 +4865,76 @@ class RecruitmentService extends BaseService {
             return null;
         }
 
-        // BƯỚC 2: Tìm kiếm trên danh sách `allRequests` vừa lấy được.
-        // Logic tìm kiếm bên trong `find` vẫn giữ nguyên.
-        const found = allRequests.find(record => {
-            // `record` ở đây đã được transform bởi `transformRecruitmentData`
-            // nên nó là một object phẳng, không cần `record.fields`.
+        // ✅ THAY ĐỔI: Tìm TẤT CẢ records có cùng requestNo
+        const matchingRecords = allRequests.filter(record => {
             const requestValue = record.requestNo;
-            
             return String(requestValue || '').trim() === String(requestNo).trim();
         });
 
-        console.log('🔍 RECRUITMENT: Search result:', found ? 'FOUND' : 'NOT_FOUND');
-        return found;
+        if (matchingRecords.length === 0) {
+            console.log('🔍 RECRUITMENT: Search result: NOT_FOUND');
+            return null;
+        }
+
+        // ✅ THÊM: Logic merge giống Frontend
+        if (matchingRecords.length === 1) {
+            return matchingRecords[0];
+        }
+
+        // Merge multiple records
+        const allFromDates = matchingRecords
+            .map(r => r.fromDate)
+            .filter(date => date && typeof date === 'number')
+            .sort((a, b) => a - b);
+            
+        const allToDates = matchingRecords
+            .map(r => r.toDate)
+            .filter(date => date && typeof date === 'number') 
+            .sort((a, b) => a - b);
+
+        const minFromDate = allFromDates[0];
+        const maxToDate = allToDates[allToDates.length - 1];
+
+        // ✅ TRẢ VỀ: Record đã merge
+        const mergedRecord = {
+            ...matchingRecords[0], // Base record
+            fromDate: minFromDate,
+            toDate: maxToDate,
+            fromDateFormatted: this.formatDate(minFromDate),
+            toDateFormatted: this.formatDate(maxToDate),
+            originalRecordCount: matchingRecords.length
+        };
+
+        console.log('✅ RECRUITMENT: Merged record:', {
+            requestNo,
+            fromDate: mergedRecord.fromDateFormatted,
+            toDate: mergedRecord.toDateFormatted,
+            recordCount: matchingRecords.length
+        });
+
+        return mergedRecord;
     }
+
+    // ✅ THÊM: Helper method format ngày
+    formatDate(timestamp) {
+        if (!timestamp || typeof timestamp !== 'number') return null;
+        
+        try {
+            const date = new Date(timestamp);
+            if (isNaN(date.getTime())) return null;
+            
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        } catch (error) {
+            console.error('Error formatting date:', error);
+            return null;
+        }
+    }
+
+
+
 
 
     // ✅ THAY ĐỔI LOGIC CỐT LÕI TẠI ĐÂY
@@ -5235,6 +5886,15 @@ const App = () => {
     return publicPaths.includes(location.pathname);
   };
 
+  // Helper function để redirect theo role
+  const getDefaultRedirectPath = (userRole) => {
+    if (userRole === 'sales') {
+      return '/attendance-logs';
+    } else {
+      return '/employee-management';
+    }
+  };
+
   if (loading || authLoading) {
     return (
       <div className="d-flex justify-content-center align-items-center min-vh-100">
@@ -5281,7 +5941,12 @@ const App = () => {
         <Route 
           path="/login" 
           element={
-            user ? <Navigate to="/dashboard" replace /> : <LoginPage />
+            // ✅ SỬA: Không tự động redirect, để LoginPage tự handle
+            user ? (
+              <Navigate to={getDefaultRedirectPath(user.role)} replace />
+            ) : (
+              <LoginPage />
+            )
           } 
         />
         
@@ -5294,8 +5959,16 @@ const App = () => {
             </ProtectedRoute>
           }
         >
-          {/* Redirect mặc định */}
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          {/* ✅ SỬA: Redirect mặc định theo role */}
+          <Route 
+            index 
+            element={
+              <Navigate 
+                to={user ? getDefaultRedirectPath(user.role) : '/login'} 
+                replace 
+              />
+            } 
+          />
           
           <Route path="dashboard" element={<HRDashboardPage />} />
           
@@ -5313,12 +5986,12 @@ const App = () => {
           <Route path="attendance-logs" element={<AttendanceLogsPage />} />
         </Route>
 
-        {/* Route bắt tất cả */}
+        {/* ✅ SỬA: Route bắt tất cả cũng theo role */}
         <Route 
           path="*" 
           element={
             user ? (
-              <Navigate to="/dashboard" replace />
+              <Navigate to={getDefaultRedirectPath(user.role)} replace />
             ) : (
               <Navigate to="/login" replace />
             )
@@ -7769,9 +8442,83 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
     item.position?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  //const handleItemSelect = item => {
+  //  setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
+  //};
+
+  // Trong hàm handleItemSelect, thêm logic xử lý min/max
+
   const handleItemSelect = item => {
-    setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
+    console.log('🔍 User clicked item:', item);
+    
+    const relatedItems = filteredData.filter(dataItem => 
+      dataItem.requestNo === item.requestNo
+    );
+    
+    console.log(`📋 Found ${relatedItems.length} related items for ${item.requestNo}`);
+    
+    if (relatedItems.length === 1) {
+      setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
+      return;
+    }
+    
+    const allFromDates = relatedItems
+      .map(r => r.fromDate)
+      .filter(date => date && typeof date === 'number') // Chỉ lấy timestamp numbers
+      .sort((a, b) => a - b); // Sort timestamp ascending
+      
+    const allToDates = relatedItems
+      .map(r => r.toDate)
+      .filter(date => date && typeof date === 'number') // Chỉ lấy timestamp numbers
+      .sort((a, b) => a - b); // Sort timestamp ascending
+    
+    console.log('🔍 DEBUG: Filtered timestamps:', { allFromDates, allToDates });
+    
+    const minFromDate = allFromDates[0]; // Earliest timestamp
+    const maxToDate = allToDates[allToDates.length - 1]; // Latest timestamp
+    
+    console.log('🔍 DEBUG: Min/max timestamps:', { minFromDate, maxToDate });
+    
+    const formatTimestamp = (timestamp) => {
+      if (!timestamp || typeof timestamp !== 'number') return null;
+      
+      try {
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) return null;
+        
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+      } catch (error) {
+        console.error('Error formatting timestamp:', error);
+        return null;
+      }
+    };
+    
+    // ✅ Tạo merged item với timestamps đã xử lý
+    const mergedItem = {
+      ...item,
+      fromDate: minFromDate,
+      toDate: maxToDate,
+      fromDateFormatted: formatTimestamp(minFromDate),
+      toDateFormatted: formatTimestamp(maxToDate),
+      originalRowCount: relatedItems.length,
+      debugInfo: {
+        allFromDates: allFromDates,
+        allToDates: allToDates
+      }
+    };
+    
+    console.log('✅ Final merged item:', mergedItem);
+    console.log(`📅 Date range: ${mergedItem.fromDateFormatted} - ${mergedItem.toDateFormatted}`);
+    
+    setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : mergedItem);
   };
+
+
+
+
 
   const handleConfirm = () => {
     if (!selectedItem) {
@@ -8600,7 +9347,7 @@ export default Layout;
 ==================== File: .\src\components\layout\ResponsiveNavigation.jsx ====================
 
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom'; // ✅ THÊM Link
 import { useAuth } from '../../hooks/useAuth';
 import { useNotification } from '../../hooks/useNotification';
 
@@ -8624,9 +9371,8 @@ const ResponsiveNavigation = () => {
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
-  // Menu items configuration
+  // ✅ SỬA: Menu items configuration - THÊM 'sales' vào attendance-logs
   const menuItems = [
-
     {
       path: '/employee-management',
       icon: 'fas fa-users-cog',
@@ -8643,7 +9389,7 @@ const ResponsiveNavigation = () => {
       path: '/attendance-logs',
       icon: 'fas fa-clock',
       label: 'Bản ghi chấm công',
-      roles: ['admin', 'hr', 'sales_manager', 'finance_manager', 'director']
+      roles: ['admin', 'hr', 'sales', 'sales_manager', 'finance_manager', 'director'] // ✅ THÊM 'sales'
     }
   ];
 
@@ -8687,16 +9433,16 @@ const ResponsiveNavigation = () => {
         {/* Navigation Menu */}
         <nav className="flex-grow-1 p-2">
           {filteredMenuItems.map((item, index) => (
-            <a
+            <Link // ✅ SỬA: Dùng Link thay vì <a href>
               key={index}
-              href={item.path}
-              className={`nav-link d-flex align-items-center rounded mb-1 p-3 ${
+              to={item.path}
+              className={`nav-link d-flex align-items-center rounded mb-1 p-3 text-decoration-none ${
                 isActiveRoute(item.path) ? 'active bg-primary text-white' : 'text-dark'
               }`}
             >
               <i className={`${item.icon} me-2`}></i>
               <span>{item.label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -8720,10 +9466,10 @@ const ResponsiveNavigation = () => {
       {/* Mobile Top Bar */}
       <nav className="navbar navbar-dark bg-dark">
         <div className="container-fluid">
-          <a className="navbar-brand" href="/dashboard">
+          <Link className="navbar-brand" to="/dashboard"> {/* ✅ SỬA: Link thay vì <a> */}
             <i className="fas fa-users me-2"></i>
             HR Management
-          </a>
+          </Link>
           
           <button
             className="navbar-toggler"
@@ -8773,17 +9519,17 @@ const ResponsiveNavigation = () => {
             {/* Mobile Menu */}
             <nav className="p-2">
               {filteredMenuItems.map((item, index) => (
-                <a
+                <Link // ✅ SỬA: Link thay vì <a href>
                   key={index}
-                  href={item.path}
-                  className={`nav-link d-flex align-items-center rounded mb-1 p-3 ${
+                  to={item.path}
+                  className={`nav-link d-flex align-items-center rounded mb-1 p-3 text-decoration-none ${
                     isActiveRoute(item.path) ? 'active bg-primary text-white' : 'text-dark'
                   }`}
                   onClick={() => setSidebarOpen(false)}
                 >
                   <i className={`${item.icon} me-2`}></i>
                   <span>{item.label}</span>
-                </a>
+                </Link>
               ))}
             </nav>
 
@@ -8807,6 +9553,7 @@ const ResponsiveNavigation = () => {
     const roleMap = {
       'admin': 'Administrator',
       'hr': 'HR Manager',
+      'sales': 'Sales', // ✅ THÊM mapping cho role 'sales'
       'sales_manager': 'Sales Manager',
       'finance_manager': 'Finance Manager',
       'director': 'Director'
@@ -11213,9 +11960,49 @@ const EmployeeManagementPage = () => {
     }
   };
 
+  // const handleDeleteEmployee = async (id) => {
+  //   await deleteEmployee(id);
+  // };
+
+
+  // ✅ CẬP NHẬT: handleDeleteEmployee với warning về work history
   const handleDeleteEmployee = async (id) => {
-    await deleteEmployee(id);
+      // Tìm employee để lấy thông tin
+      const employee = employees.find(emp => emp.id === id);
+      if (!employee) {
+          showNotification('Không tìm thấy nhân viên để xóa', 'error');
+          return;
+      }
+      
+      // ✅ THÊM: Warning về cascade delete
+      const confirmMessage = `⚠️ CẢNH BÁO: Xóa nhân viên sẽ xóa vĩnh viễn:
+
+  👤 Nhân viên: "${employee.fullName}" (${employee.employeeId})
+  📋 TẤT CẢ lịch sử công việc liên quan
+  ⏰ TẤT CẢ dữ liệu chấm công liên quan
+
+  ❗ Hành động này KHÔNG THỂ HOÀN TÁC!
+
+  Bạn có chắc chắn muốn tiếp tục?`;
+
+      if (!window.confirm(confirmMessage)) {
+          return;
+      }
+      
+      // ✅ THÊM: Second confirmation
+      const finalConfirm = `Xác nhận lần cuối: Xóa "${employee.fullName}"?`;
+      if (!window.confirm(finalConfirm)) {
+          return;
+      }
+      
+      // Thực hiện xóa
+      const success = await deleteEmployee(id);
+      if (success) {
+          showNotification(`Đã xóa nhân viên "${employee.fullName}" và tất cả dữ liệu liên quan`, 'success');
+      }
   };
+
+
 
   const handleAddEmployee = async (formData) => {
     return await addEmployee(formData);
@@ -11625,7 +12412,7 @@ export default HRDashboardPage;
 ==================== File: .\src\pages\LoginPage.jsx ====================
 
 import React, { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useNotification } from '../hooks/useNotification';
 import Loading from '../components/common/Loading';
@@ -11638,8 +12425,12 @@ const LoginPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   
+  // ✅ THÊM: State để đánh dấu khi đang thực hiện quick access
+  const [isQuickAccess, setIsQuickAccess] = useState(false);
+  
   const { user, login, loading } = useAuth();
   const { showNotification } = useNotification();
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Clear any existing alerts
@@ -11693,15 +12484,15 @@ const LoginPage = () => {
     try {
       const response = await login(credentials);
       
+      console.log('✅ Regular login response:', response);
+      console.log('👤 User role:', response?.data?.user?.role);
+      
       showNotification('Đăng nhập thành công!', 'success');
       
-      // Redirect based on role after short delay
+      // Login bình thường - redirect to employee-management với full quyền
       setTimeout(() => {
-        if (response.user.role === 'hr' || response.user.role === 'admin') {
-          window.location.href = '/hr-dashboard';
-        } else {
-          window.location.href = '/dashboard';
-        }
+        console.log('🎯 Regular login redirecting to /employee-management');
+        navigate('/employee-management', { replace: true });
       }, 1000);
       
     } catch (error) {
@@ -11712,9 +12503,53 @@ const LoginPage = () => {
     }
   };
 
-  // Redirect if already logged in
-  if (user) {
-    const redirectPath = user.role === 'hr' || user.role === 'admin' ? '/hr-dashboard' : '/dashboard';
+  // ✅ SỬA: Handle quick access với giải pháp 1
+  const handleQuickAccess = async () => {
+    setIsQuickAccess(true); // ✅ Set flag trước khi login
+    setIsSubmitting(true);
+    console.log('🚀 Starting quick access with bypass flag...');
+    
+    try {
+      const salesCredentials = {
+        username: 'sales',
+        password: 'sales123'
+      };
+      
+      console.log('📝 Calling login with sales credentials');
+      const response = await login(salesCredentials);
+      
+      // ✅ Đơn giản hóa logic xử lý response
+      if (response && (response.success || response.data?.user || response.user)) {
+        const userData = response.data?.user || response.user;
+        console.log('👤 User found:', userData);
+        console.log('🏷️ User role:', userData?.role);
+        
+        showNotification('Truy cập thành công!', 'success');
+        
+        // ✅ Navigate ngay lập tức, không cần setTimeout
+        console.log('🎯 Quick access redirecting to /attendance-logs');
+        navigate('/attendance-logs', { replace: true });
+        
+      } else {
+        console.error('❌ Login failed - no user data found');
+        showNotification('Đăng nhập thất bại!', 'error');
+      }
+      
+    } catch (error) {
+      console.error('❌ Quick access error:', error);
+      console.error('❌ Error details:', error.message);
+      showNotification('Không thể truy cập hệ thống. Vui lòng thử lại!', 'error');
+    } finally {
+      setIsSubmitting(false);
+      setIsQuickAccess(false); // ✅ Reset flag
+    }
+  };
+
+  // ✅ SỬA: Logic redirect tự động với bypass cho quick access
+  if (user && !isQuickAccess) {
+    // Phân quyền redirect: sales -> attendance-logs, còn lại -> employee-management
+    const redirectPath = user.role === 'sales' ? '/attendance-logs' : '/employee-management';
+    console.log('🔄 User already logged in, redirecting to:', redirectPath);
     return <Navigate to={redirectPath} replace />;
   }
 
@@ -11784,29 +12619,51 @@ const LoginPage = () => {
                     )}
                   </div>
 
-                  <button
-                    type="submit"
-                    className="btn btn-primary w-100"
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Đang đăng nhập...
-                      </>
-                    ) : (
-                      'Đăng nhập'
-                    )}
-                  </button>
+                  {/* Hai nút: Đăng nhập và Truy cập nhanh */}
+                  <div className="row mb-3">
+                    <div className="col-6">
+                      <button
+                        type="submit"
+                        className="btn btn-primary w-100"
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting && !isQuickAccess ? (
+                          <>
+                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Đang xử lý...
+                          </>
+                        ) : (
+                          'Đăng nhập'
+                        )}
+                      </button>
+                    </div>
+                    <div className="col-6">
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary w-100"
+                        onClick={handleQuickAccess}
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting && isQuickAccess ? (
+                          <>
+                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Truy cập...
+                          </>
+                        ) : (
+                          'Truy cập nhanh'
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </form>
 
-                {/* Demo credentials info */}
-                <div className="mt-4 p-3 bg-light rounded">
-                  <small className="text-muted">
-                    <strong>Tài khoản demo:</strong><br />
-                    Admin: admin / admin123<br />
-                    HR: hr / hr123<br />
-                    Sales: sales / sales123
+                {/* Ghi chú thông tin */}
+                <div className="mt-3 p-3 bg-info bg-opacity-10 rounded">
+                  <small className="text-info">
+                    <i className="bi bi-info-circle me-1"></i>
+                    <strong>Ghi chú:</strong><br />
+                    • <strong>Đăng nhập:</strong> Truy cập đầy đủ tính năng quản lý nhân viên<br />
+                    • <strong>Truy cập nhanh:</strong> Xem báo cáo chấm công nhanh chóng
                   </small>
                 </div>
               </div>
@@ -12050,6 +12907,23 @@ export const updateEmployee = async (id, employeeData) => {
     }
 };
 
+// export const deleteEmployee = async (id) => {
+//     try {
+//         console.log(`📡 SERVICE (FE): Gọi API xóa nhân viên ID: ${id}...`);
+//         const response = await ApiClient.delete(`/api/employees/${id}`);
+        
+//         console.log('🔍 DELETE EMPLOYEE SERVICE: Response:', response);
+        
+//         return {
+//             success: true,
+//             message: 'Xóa nhân viên thành công'
+//         };
+//     } catch (error) {
+//         handleError(error, 'xóa nhân viên');
+//     }
+// };
+
+
 export const deleteEmployee = async (id) => {
     try {
         console.log(`📡 SERVICE (FE): Gọi API xóa nhân viên ID: ${id}...`);
@@ -12057,20 +12931,45 @@ export const deleteEmployee = async (id) => {
         
         console.log('🔍 DELETE EMPLOYEE SERVICE: Response:', response);
         
+        // ✅ THÊM: Hiển thị thông tin chi tiết từ backend
+        if (response.data?.deletedWorkHistories > 0) {
+            console.log(`✅ Deleted ${response.data.deletedWorkHistories} work history records`);
+        }
+        
         return {
             success: true,
-            message: 'Xóa nhân viên thành công'
+            message: response.message || 'Xóa nhân viên thành công',
+            data: response.data
         };
+        
     } catch (error) {
-        handleError(error, 'xóa nhân viên');
+        console.error('❌ Delete employee service error:', error);
+        
+        // ✅ THÊM: Better error message
+        let errorMessage = 'Lỗi khi xóa nhân viên';
+        
+        try {
+            const errorData = JSON.parse(error.message);
+            errorMessage = errorData.message || errorMessage;
+        } catch (parseError) {
+            errorMessage = error.message || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
     }
 };
+
+
 
 export const getApprovedRecruitmentRequests = async () => {
     try {
         console.log('📡 SERVICE (FE): Gọi API lấy danh sách đề xuất tuyển dụng...');
-        const response = await ApiClient.get('/api/recruitment');
-        
+        //const response = await ApiClient.get('/api/recruitment');
+
+        //Thêm filter theo status
+        const response = await ApiClient.get('/api/recruitment', {
+            status: 'Approved,Under Review'
+        });
         console.log('🔍 RECRUITMENT SERVICE: Response:', response);
         
         // Handle different response structures
@@ -12369,7 +13268,7 @@ export const deleteWorkHistory = async (id) => {
 3. THỐNG KÊ TỔNG QUAN:
 ----------------------------------------
 📊 Tổng số file đã phân tích: 96
-📊 Tổng số dòng code (ước tính): 23838
+📊 Tổng số dòng code (ước tính): 25636
 
 ================================================================================
 Báo cáo được tạo thành công!

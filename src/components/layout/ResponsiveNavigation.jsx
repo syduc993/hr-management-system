@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom'; // ✅ THÊM Link
 import { useAuth } from '../../hooks/useAuth';
 import { useNotification } from '../../hooks/useNotification';
 
@@ -23,9 +23,8 @@ const ResponsiveNavigation = () => {
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
-  // Menu items configuration
+  // ✅ SỬA: Menu items configuration - THÊM 'sales' vào attendance-logs
   const menuItems = [
-
     {
       path: '/employee-management',
       icon: 'fas fa-users-cog',
@@ -42,7 +41,7 @@ const ResponsiveNavigation = () => {
       path: '/attendance-logs',
       icon: 'fas fa-clock',
       label: 'Bản ghi chấm công',
-      roles: ['admin', 'hr', 'sales_manager', 'finance_manager', 'director']
+      roles: ['admin', 'hr', 'sales', 'sales_manager', 'finance_manager', 'director'] // ✅ THÊM 'sales'
     }
   ];
 
@@ -86,16 +85,16 @@ const ResponsiveNavigation = () => {
         {/* Navigation Menu */}
         <nav className="flex-grow-1 p-2">
           {filteredMenuItems.map((item, index) => (
-            <a
+            <Link // ✅ SỬA: Dùng Link thay vì <a href>
               key={index}
-              href={item.path}
-              className={`nav-link d-flex align-items-center rounded mb-1 p-3 ${
+              to={item.path}
+              className={`nav-link d-flex align-items-center rounded mb-1 p-3 text-decoration-none ${
                 isActiveRoute(item.path) ? 'active bg-primary text-white' : 'text-dark'
               }`}
             >
               <i className={`${item.icon} me-2`}></i>
               <span>{item.label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -119,10 +118,10 @@ const ResponsiveNavigation = () => {
       {/* Mobile Top Bar */}
       <nav className="navbar navbar-dark bg-dark">
         <div className="container-fluid">
-          <a className="navbar-brand" href="/dashboard">
+          <Link className="navbar-brand" to="/dashboard"> {/* ✅ SỬA: Link thay vì <a> */}
             <i className="fas fa-users me-2"></i>
             HR Management
-          </a>
+          </Link>
           
           <button
             className="navbar-toggler"
@@ -172,17 +171,17 @@ const ResponsiveNavigation = () => {
             {/* Mobile Menu */}
             <nav className="p-2">
               {filteredMenuItems.map((item, index) => (
-                <a
+                <Link // ✅ SỬA: Link thay vì <a href>
                   key={index}
-                  href={item.path}
-                  className={`nav-link d-flex align-items-center rounded mb-1 p-3 ${
+                  to={item.path}
+                  className={`nav-link d-flex align-items-center rounded mb-1 p-3 text-decoration-none ${
                     isActiveRoute(item.path) ? 'active bg-primary text-white' : 'text-dark'
                   }`}
                   onClick={() => setSidebarOpen(false)}
                 >
                   <i className={`${item.icon} me-2`}></i>
                   <span>{item.label}</span>
-                </a>
+                </Link>
               ))}
             </nav>
 
@@ -206,6 +205,7 @@ const ResponsiveNavigation = () => {
     const roleMap = {
       'admin': 'Administrator',
       'hr': 'HR Manager',
+      'sales': 'Sales', // ✅ THÊM mapping cho role 'sales'
       'sales_manager': 'Sales Manager',
       'finance_manager': 'Finance Manager',
       'director': 'Director'

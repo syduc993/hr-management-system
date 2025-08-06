@@ -31,51 +31,45 @@ class RecruitmentService extends BaseService {
         console.log('Initializing Recruitment Service...');
     }
 
+
     async getRecruitmentRequests(filters = {}) {
-        const cacheKey = `recruitment_requests_${JSON.stringify(filters)}`;
-        let requests = CacheService.get(cacheKey);
-
-        if (requests) {
-            console.log(`✅ RECRUITMENT: Loaded ${requests.length} requests from cache.`);
-            return requests;
-        }
-
         try {
-            console.log('📡 RECRUITMENT: Fetching all recruitment requests from Lark...');
-
-            const params = {};
-            const filterClauses = [];
-
-            if (filters.status) {
-                filterClauses.push(`CurrentValue.[Status] = "${filters.status}"`);
-            }
-            if (filters.department) {
-                filterClauses.push(`CurrentValue.[Details_Phòng ban] = "${filters.department}"`);
-            }
-
-            if (filterClauses.length > 0) {
-                params.filter = `AND(${filterClauses.join(', ')})`;
-            }
-
+            console.log('📡 RECRUITMENT: Fetching ALL recruitment requests from Lark...');
+            
             const response = await LarkClient.getAllRecords(
-                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`,
-                params
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
             );
 
-            requests = this.transformRecruitmentData(response.data?.items || []);
-            console.log(`✅ RECRUITMENT: Transformed ${requests.length} total records from Lark.`);
+            let requests = this.transformRecruitmentData(response.data?.items || []);
+            console.log(`✅ RECRUITMENT: Retrieved ${requests.length} total records from Lark`);
+            
+            // ✅ SỬA: Filter ở application level - chỉ lấy chính xác "Approved" và "Under Review"
+            if (filters.status) {
+                const statusArray = Array.isArray(filters.status) 
+                    ? filters.status 
+                    : filters.status.split(',').map(s => s.trim());
+                
+                console.log('🔍 RECRUITMENT: Filtering by status:', statusArray);
+                
+                requests = requests.filter(request => {
+                    const requestStatus = request.status;
+                    console.log(`📝 Checking: ${request.requestNo} - Status: "${requestStatus}"`);
+                    
+                    // ✅ ĐƠN GIẢN: Chỉ kiểm tra exact match
+                    return statusArray.includes(requestStatus);
+                });
+            }
 
-            CacheService.set(cacheKey, requests, 300000);
-            console.log(`✅ RECRUITMENT: Cached ${requests.length} records.`);
-
+            console.log(`✅ RECRUITMENT: After filtering: ${requests.length} records`);
+            return requests;
+            
         } catch (error) {
             console.error('❌ Error fetching recruitment requests:', error);
-            requests = [];
             throw error;
         }
-
-        return requests;
     }
+
+
 
     async addRecruitmentRequest(requestData) {
         // Giữ nguyên logic
@@ -86,11 +80,36 @@ class RecruitmentService extends BaseService {
     }
 
 
+    // async getRequestByNo(requestNo) {
+    //     console.log('🔍 RECRUITMENT: Searching for request number:', requestNo);
+
+    //     // BƯỚC 1: Chủ động lấy TẤT CẢ các đề xuất tuyển dụng.
+    //     // Hàm này sẽ tự động dùng cache nếu có, hoặc gọi API nếu không.
+    //     const allRequests = await this.getRecruitmentRequests();
+        
+    //     if (!allRequests || allRequests.length === 0) {
+    //         console.log('⚠️ RECRUITMENT: No requests found to search in.');
+    //         return null;
+    //     }
+
+    //     // BƯỚC 2: Tìm kiếm trên danh sách `allRequests` vừa lấy được.
+    //     // Logic tìm kiếm bên trong `find` vẫn giữ nguyên.
+    //     const found = allRequests.find(record => {
+    //         // `record` ở đây đã được transform bởi `transformRecruitmentData`
+    //         // nên nó là một object phẳng, không cần `record.fields`.
+    //         const requestValue = record.requestNo;
+            
+    //         return String(requestValue || '').trim() === String(requestNo).trim();
+    //     });
+
+    //     console.log('🔍 RECRUITMENT: Search result:', found ? 'FOUND' : 'NOT_FOUND');
+    //     return found;
+    // }
+
+
     async getRequestByNo(requestNo) {
         console.log('🔍 RECRUITMENT: Searching for request number:', requestNo);
 
-        // BƯỚC 1: Chủ động lấy TẤT CẢ các đề xuất tuyển dụng.
-        // Hàm này sẽ tự động dùng cache nếu có, hoặc gọi API nếu không.
         const allRequests = await this.getRecruitmentRequests();
         
         if (!allRequests || allRequests.length === 0) {
@@ -98,19 +117,76 @@ class RecruitmentService extends BaseService {
             return null;
         }
 
-        // BƯỚC 2: Tìm kiếm trên danh sách `allRequests` vừa lấy được.
-        // Logic tìm kiếm bên trong `find` vẫn giữ nguyên.
-        const found = allRequests.find(record => {
-            // `record` ở đây đã được transform bởi `transformRecruitmentData`
-            // nên nó là một object phẳng, không cần `record.fields`.
+        // ✅ THAY ĐỔI: Tìm TẤT CẢ records có cùng requestNo
+        const matchingRecords = allRequests.filter(record => {
             const requestValue = record.requestNo;
-            
             return String(requestValue || '').trim() === String(requestNo).trim();
         });
 
-        console.log('🔍 RECRUITMENT: Search result:', found ? 'FOUND' : 'NOT_FOUND');
-        return found;
+        if (matchingRecords.length === 0) {
+            console.log('🔍 RECRUITMENT: Search result: NOT_FOUND');
+            return null;
+        }
+
+        // ✅ THÊM: Logic merge giống Frontend
+        if (matchingRecords.length === 1) {
+            return matchingRecords[0];
+        }
+
+        // Merge multiple records
+        const allFromDates = matchingRecords
+            .map(r => r.fromDate)
+            .filter(date => date && typeof date === 'number')
+            .sort((a, b) => a - b);
+            
+        const allToDates = matchingRecords
+            .map(r => r.toDate)
+            .filter(date => date && typeof date === 'number') 
+            .sort((a, b) => a - b);
+
+        const minFromDate = allFromDates[0];
+        const maxToDate = allToDates[allToDates.length - 1];
+
+        // ✅ TRẢ VỀ: Record đã merge
+        const mergedRecord = {
+            ...matchingRecords[0], // Base record
+            fromDate: minFromDate,
+            toDate: maxToDate,
+            fromDateFormatted: this.formatDate(minFromDate),
+            toDateFormatted: this.formatDate(maxToDate),
+            originalRecordCount: matchingRecords.length
+        };
+
+        console.log('✅ RECRUITMENT: Merged record:', {
+            requestNo,
+            fromDate: mergedRecord.fromDateFormatted,
+            toDate: mergedRecord.toDateFormatted,
+            recordCount: matchingRecords.length
+        });
+
+        return mergedRecord;
     }
+
+    // ✅ THÊM: Helper method format ngày
+    formatDate(timestamp) {
+        if (!timestamp || typeof timestamp !== 'number') return null;
+        
+        try {
+            const date = new Date(timestamp);
+            if (isNaN(date.getTime())) return null;
+            
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        } catch (error) {
+            console.error('Error formatting date:', error);
+            return null;
+        }
+    }
+
+
+
 
 
     // ✅ THAY ĐỔI LOGIC CỐT LÕI TẠI ĐÂY

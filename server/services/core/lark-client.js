@@ -102,16 +102,23 @@ class LarkClient {
             throw error;
         }
     }
-
+    
     async get(endpoint, params = {}) {
         console.log('📥 GET request:', endpoint, params);
-        return this.request(endpoint, { method: 'GET', params });
+        
+        // ✅ SỬA: Đổi tên biến để tránh conflict
+        const queryParams = params;
+        
+        return this.request(endpoint, { 
+            method: 'GET', 
+            params: queryParams 
+        });
     }
 
     // ✅ ================================================================
     // ✅ PHƯƠNG THỨC MỚI ĐỂ LẤY TOÀN BỘ DỮ LIỆU (CÓ PAGINATION)
     // ✅ ================================================================
-    async getAllRecords(endpoint, pageSize = 100) {
+    async getAllRecords(endpoint, pageSize = 100, filterParams = {}) {
         console.log(`📚 Getting ALL records from: ${endpoint}`);
         
         let allRecords = [];
@@ -127,6 +134,12 @@ class LarkClient {
                 page_size: pageSize
             };
             
+            // ✅ SỬA: Thêm filter params nếu có
+            if (filterParams && Object.keys(filterParams).length > 0) {
+                Object.assign(requestParams, filterParams);
+            }
+
+
             if (pageToken) {
                 params.page_token = pageToken;
             }
@@ -144,8 +157,8 @@ class LarkClient {
             pageToken = response.data?.page_token || null;
             
             // Safety break để tránh infinite loop
-            if (pageCount > 50) { // Giới hạn 50 trang (tối đa 5000 records)
-                console.warn('⚠️ Reached maximum page limit (50 pages)');
+            if (pageCount > 200) { // Giới hạn 200 trang (tối đa 20000 records)
+                console.warn('⚠️ Reached maximum page limit (200 pages)');
                 break;
             }
         }

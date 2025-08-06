@@ -87,6 +87,15 @@ const App = () => {
     return publicPaths.includes(location.pathname);
   };
 
+  // Helper function để redirect theo role
+  const getDefaultRedirectPath = (userRole) => {
+    if (userRole === 'sales') {
+      return '/attendance-logs';
+    } else {
+      return '/employee-management';
+    }
+  };
+
   if (loading || authLoading) {
     return (
       <div className="d-flex justify-content-center align-items-center min-vh-100">
@@ -133,7 +142,12 @@ const App = () => {
         <Route 
           path="/login" 
           element={
-            user ? <Navigate to="/dashboard" replace /> : <LoginPage />
+            // ✅ SỬA: Không tự động redirect, để LoginPage tự handle
+            user ? (
+              <Navigate to={getDefaultRedirectPath(user.role)} replace />
+            ) : (
+              <LoginPage />
+            )
           } 
         />
         
@@ -146,8 +160,16 @@ const App = () => {
             </ProtectedRoute>
           }
         >
-          {/* Redirect mặc định */}
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          {/* ✅ SỬA: Redirect mặc định theo role */}
+          <Route 
+            index 
+            element={
+              <Navigate 
+                to={user ? getDefaultRedirectPath(user.role) : '/login'} 
+                replace 
+              />
+            } 
+          />
           
           <Route path="dashboard" element={<HRDashboardPage />} />
           
@@ -165,12 +187,12 @@ const App = () => {
           <Route path="attendance-logs" element={<AttendanceLogsPage />} />
         </Route>
 
-        {/* Route bắt tất cả */}
+        {/* ✅ SỬA: Route bắt tất cả cũng theo role */}
         <Route 
           path="*" 
           element={
             user ? (
-              <Navigate to="/dashboard" replace />
+              <Navigate to={getDefaultRedirectPath(user.role)} replace />
             ) : (
               <Navigate to="/login" replace />
             )

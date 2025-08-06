@@ -66,9 +66,83 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
     item.position?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  //const handleItemSelect = item => {
+  //  setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
+  //};
+
+  // Trong hàm handleItemSelect, thêm logic xử lý min/max
+
   const handleItemSelect = item => {
-    setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
+    console.log('🔍 User clicked item:', item);
+    
+    const relatedItems = filteredData.filter(dataItem => 
+      dataItem.requestNo === item.requestNo
+    );
+    
+    console.log(`📋 Found ${relatedItems.length} related items for ${item.requestNo}`);
+    
+    if (relatedItems.length === 1) {
+      setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
+      return;
+    }
+    
+    const allFromDates = relatedItems
+      .map(r => r.fromDate)
+      .filter(date => date && typeof date === 'number') // Chỉ lấy timestamp numbers
+      .sort((a, b) => a - b); // Sort timestamp ascending
+      
+    const allToDates = relatedItems
+      .map(r => r.toDate)
+      .filter(date => date && typeof date === 'number') // Chỉ lấy timestamp numbers
+      .sort((a, b) => a - b); // Sort timestamp ascending
+    
+    console.log('🔍 DEBUG: Filtered timestamps:', { allFromDates, allToDates });
+    
+    const minFromDate = allFromDates[0]; // Earliest timestamp
+    const maxToDate = allToDates[allToDates.length - 1]; // Latest timestamp
+    
+    console.log('🔍 DEBUG: Min/max timestamps:', { minFromDate, maxToDate });
+    
+    const formatTimestamp = (timestamp) => {
+      if (!timestamp || typeof timestamp !== 'number') return null;
+      
+      try {
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) return null;
+        
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+      } catch (error) {
+        console.error('Error formatting timestamp:', error);
+        return null;
+      }
+    };
+    
+    // ✅ Tạo merged item với timestamps đã xử lý
+    const mergedItem = {
+      ...item,
+      fromDate: minFromDate,
+      toDate: maxToDate,
+      fromDateFormatted: formatTimestamp(minFromDate),
+      toDateFormatted: formatTimestamp(maxToDate),
+      originalRowCount: relatedItems.length,
+      debugInfo: {
+        allFromDates: allFromDates,
+        allToDates: allToDates
+      }
+    };
+    
+    console.log('✅ Final merged item:', mergedItem);
+    console.log(`📅 Date range: ${mergedItem.fromDateFormatted} - ${mergedItem.toDateFormatted}`);
+    
+    setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : mergedItem);
   };
+
+
+
+
 
   const handleConfirm = () => {
     if (!selectedItem) {
