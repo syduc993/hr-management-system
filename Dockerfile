@@ -31,6 +31,13 @@ WORKDIR /app
 # Sao chép các file quản lý package từ stage trước
 COPY package.json package-lock.json ./
 
+# --- BẮT ĐẦU PHẦN ĐÃ SỬA ---
+# Sao chép file .env vào trong image.
+# Lệnh này sẽ hoạt động sau khi bạn đã xóa dòng '.env' khỏi file .dockerignore.
+# Nhờ có file này, lệnh dotenv.config() trong server.js sẽ có thể đọc được các biến môi trường.
+COPY .env .
+# --- KẾT THÚC PHẦN ĐÃ SỬA ---
+
 # Chỉ cài đặt các dependencies cần thiết cho production (bỏ qua devDependencies)
 RUN npm install --omit=dev
 
