@@ -1,0 +1,30 @@
+# Các thư mục dependencies cục bộ
+node_modules/
+server/node_modules/
+
+# Thư mục build (sẽ được tạo bên trong container)
+dist/
+build/
+
+# Các file cấu hình và log của môi trường local
+.env
+.env.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+cookies.txt
+project_analysis.txt
+
+# File Jupyter Notebook (nếu có)
+Getcode.ipynb
+
+# Thư mục hệ thống của Git và các IDE
+.git
+.gitignore
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
