@@ -271,98 +271,6 @@ export default defineConfig({
 
 ==================== File: .\server\server.js ====================
 
-// // server/server.js
-// import dotenv from 'dotenv';
-
-// // Configure dotenv FIRST
-// dotenv.config();
-
-// // Import các modules AFTER đã config dotenv
-// import express from 'express';
-// import cors from 'cors';
-// import session from 'express-session';
-// import path from 'path';
-// import { fileURLToPath } from 'url';
-
-// // ES6 module equivalent of __dirname
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
-
-// // Import service manager AFTER dotenv config
-// import larkServiceManager from './services/lark-service-manager.js';
-
-// // Import routes
-// import authRoutes from './routes/auth.js';
-// import employeeRoutes from './routes/employees.js';
-// import attendanceRoutes from './routes/attendance.js';
-// import recruitmentRoutes from './routes/recruitment.js';
-// import masterDataRoutes from './routes/masterData.js';
-// import dashboardRoutes from './routes/dashboard.js';
-
-// const app = express();
-// const PORT = process.env.PORT || 8080;
-
-// // Middleware
-// app.use(cors({
-//     origin: 'http://localhost:3000',
-//     //origin: ['http://localhost:3000', 'http://192.168.1.88:3000'],
-//     credentials: true
-// }));
-
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
-
-// // Session configuration
-// app.use(session({
-//     secret: process.env.SESSION_SECRET || 'your-secret-key',
-//     resave: false,
-//     saveUninitialized: false,
-//     cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
-// }));
-
-// // API Routes
-// app.use('/api/auth', authRoutes);
-// app.use('/api/employees', employeeRoutes);
-// app.use('/api/attendance', attendanceRoutes);
-// app.use('/api/recruitment', recruitmentRoutes);
-// app.use('/api/master-data', masterDataRoutes);
-// app.use('/api/dashboard', dashboardRoutes);
-
-// // Health check endpoint
-// app.get('/api/health', (req, res) => {
-//     res.json({
-//         status: 'OK',
-//         timestamp: new Date().toISOString(),
-//         services: {
-//             larkServiceManager: larkServiceManager.initialized
-//         }
-//     });
-// });
-
-// // Root endpoint
-// app.get('/', (req, res) => {
-//     res.json({
-//         message: 'HR Management System API',
-//         version: '1.0.0',
-//         timestamp: new Date().toISOString()
-//     });
-// });
-
-// // Start server with proper initialization
-// app.listen(PORT,'::', async () => {
-//     console.log(`Server running on http://localhost:${PORT}`);
-    
-//     try {
-//         await larkServiceManager.init();
-//         console.log('Server fully initialized and ready');
-//     } catch (error) {
-//         console.error('Service initialization failed:', error.message);
-//         console.log('Server running but services unavailable');
-//     }
-// });
-
-
-
 // server/server.js
 import dotenv from 'dotenv';
 
@@ -480,7 +388,7 @@ const users = {
     admin: {
         id: 'admin',
         username: 'admin',
-        password: 'admin123',
+        password: 'atino2025',
         role: 'admin',
         fullName: 'System Admin'
     },
@@ -580,6 +488,13 @@ export const larkConfig = {
 import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
 
+
+/* ======================= REGION: Lấy danh sách bản ghi chấm công ======================= */
+/**
+ * GET: Lấy danh sách các bản ghi chấm công (attendance logs) dựa trên filter từ query parameters.
+ * - Trả về data bản ghi chấm công dạng list.
+ * - Xử lý lỗi và gửi error message nếu có vấn đề.
+ */
 export const getAttendanceLogs = async (req, res) => {
     try {
         const filters = req.query;
@@ -598,6 +513,16 @@ export const getAttendanceLogs = async (req, res) => {
     }
 };
 
+
+
+/* ======================= REGION: Thêm bản ghi chấm công mới ======================= */
+/**
+ * POST: Thêm một bản ghi chấm công mới cho nhân viên.
+ * - Nhận attendanceData từ body request (employeeId, type, position).
+ * - Validate dữ liệu (đầy đủ, hợp lệ).
+ * - Gọi service để lưu bản ghi mới vào hệ thống.
+ * - Trả kết quả thành công/thất bại cho client.
+ */
 export const addAttendanceLog = async (req, res) => {
     try {
         const attendanceData = req.body;
@@ -648,7 +573,16 @@ export const addAttendanceLog = async (req, res) => {
     }
 };
 
-// ✅ CẬP NHẬT: Method tính tổng giờ công với logic mới
+
+/* ======================= REGION: Tính tổng giờ công tất cả nhân viên ======================= */
+/**
+ * GET: Lấy tổng hợp giờ công cho tất cả nhân viên (theo từng ngày).
+ * - Lấy dữ liệu giờ công từ service.
+ * - Gắn thêm thông tin nhân viên (tên, position, ...) vào mỗi record.
+ * - Trả về list tổng hợp theo ngày + một số summary.
+ */
+
+
 export const getEmployeeHours = async (req, res) => {
     try {
         console.log('📊 Controller: Getting employee hours...');
@@ -719,7 +653,14 @@ export const getEmployeeHours = async (req, res) => {
     }
 };
 
-// ✅ THÊM: Method lấy tổng hợp thống kê chấm công
+
+/* ======================= REGION: Thống kê tổng hợp chấm công ======================= */
+/**
+ * GET: Lấy thống kê tổng hợp chấm công trong khoảng thời gian (ngày bắt đầu/kết thúc).
+ * - Tổng số lượt chấm công (totalLogs).
+ * - Số nhân viên duy nhất (uniqueEmployees).
+ * - Thống kê theo loại (Checkin/Checkout) và theo vị trí.
+ */
 export const getAttendanceStats = async (req, res) => {
     try {
         const { dateFrom, dateTo } = req.query;
@@ -763,7 +704,16 @@ export const getAttendanceStats = async (req, res) => {
     }
 };
 
-// ✅ THÊM: Method lấy giờ công chi tiết của một nhân viên
+
+
+
+/* ======================= REGION: Giờ công chi tiết 1 nhân viên ======================= */
+/**
+ * GET: Lấy chi tiết giờ công của một nhân viên (theo employeeId và khoảng ngày).
+ * - list bản ghi raw (logs).
+ * - bảng tổng hợp giờ công từng ngày (dailyHours).
+ * - tổng kết số ngày và tổng số giờ thực tế.
+ */
 export const getEmployeeDetailedHours = async (req, res) => {
     try {
         const { employeeId } = req.params;
@@ -983,8 +933,13 @@ import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
 import CacheService from '../services/core/cache-service.js';
 class EmployeeController {
+
+
+    /* ======================= REGION: Quản lý danh sách nhân viên ======================= */
     /**
-     * Get all employees
+     * GET: Lấy danh sách tất cả nhân viên trong hệ thống.
+     * - Trả về array chứa thông tin cơ bản của tất cả nhân viên.
+     * - Không có filter, pagination (lấy tất cả).
      * @route GET /api/employees
      */
     async getAllEmployees(req, res) {
@@ -1005,79 +960,16 @@ class EmployeeController {
         }
     }
 
+    /* ======================= REGION: Thêm nhân viên mới ======================= */
     /**
-     * Add new employee with work history support
+     * POST: Thêm nhân viên mới kèm theo work history.
+     * - Tự động generate employeeId từ tên + SĐT.
+     * - Validate duplicate employeeId trước khi tạo.
+     * - Validate work history data (ngày tháng, overlap, đề xuất tuyển dụng).
+     * - Rollback toàn bộ nếu có lỗi trong quá trình tạo.
+     * - Transaction-like behavior: tạo employee trước, sau đó tạo work histories.
      * @route POST /api/employees
      */
-    // async addEmployee(req, res) {
-    //     try {
-    //         const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData } = req.body;
-    //         const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
-    //         const employeeService = larkServiceManager.getService('employee');
-    //         const isDuplicate = await employeeService.checkEmployeeIdExists(employeeId);
-    //         if (isDuplicate) {
-    //             return res.status(409).json(formatResponse(
-    //                 false, 
-    //                 'Mã nhân viên đã tồn tại trong hệ thống', 
-    //                 null, 
-    //                 'DUPLICATE_EMPLOYEE_ID'
-    //             ));
-    //         }
-            
-    //         const employeeData = {
-    //             employeeId,
-    //             fullName,
-    //             phoneNumber,
-    //             gender,
-    //             bankAccount,
-    //             bankName,
-    //             recruitmentLink: workHistoryData.map(item => item.requestNo).join(', '),
-    //             status: 'active',
-    //             createdAt: new Date().toISOString()
-    //         };
-
-    //         const employee = await larkServiceManager.addEmployee(employeeData);
-            
-    //         const workHistoryResults = [];
-    //         for (const historyEntry of workHistoryData) {
-    //             const workHistoryExists = await larkServiceManager.checkWorkHistoryExists(employeeId, historyEntry.requestNo);
-    //             if (workHistoryExists) {
-    //                 return res.status(409).json(formatResponse(
-    //                     false, 
-    //                     `Work History đã tồn tại: ${employeeId} - ${historyEntry.requestNo}`, 
-    //                     null, 
-    //                     'DUPLICATE_WORK_HISTORY'
-    //                 ));
-    //             }
-                
-    //             const workHistory = await larkServiceManager.addWorkHistory({
-    //                 employeeId,
-    //                 requestNo: historyEntry.requestNo,
-    //                 fromDate: historyEntry.fromDate,
-    //                 toDate: historyEntry.toDate,
-    //                 hourlyRate: historyEntry.hourlyRate
-    //             });
-    //             workHistoryResults.push(workHistory);
-    //         }
-
-    //         console.log('✅ CONTROLLER: Employee added successfully, clearing cache...');
-            
-    //         res.json(formatResponse(true, 'Thêm nhân viên thành công', {
-    //             employee,
-    //             workHistory: workHistoryResults
-    //         }));
-            
-    //     } catch (error) {
-    //         console.error('❌ Controller: addEmployee failed:', error);
-    //         res.status(500).json(formatResponse(
-    //             false, 
-    //             `Lỗi hệ thống khi thêm nhân viên: ${error.message}`, 
-    //             null, 
-    //             'EMPLOYEE_ADD_FAILED'
-    //         ));
-    //     }
-    // }
-
 
     async addEmployee(req, res) {
         let createdEmployee = null;
@@ -1190,7 +1082,14 @@ class EmployeeController {
         }
     }
 
-    // ✅ THÊM: Method rollback
+
+
+    /**
+     * UTILITY: Rollback khi tạo nhân viên thất bại.
+     * - Xóa các work history records đã tạo thành công.
+     * - Xóa employee record nếu đã tạo.
+     * - Đảm bảo data consistency khi có lỗi xảy ra.
+     */
     async rollbackEmployeeCreation(employee, createdWorkHistories) {
         console.log('🔄 ROLLBACK: Starting cleanup...');
         
@@ -1230,49 +1129,14 @@ class EmployeeController {
 
 
 
-
-
-
+    /* ======================= REGION: Cập nhật thông tin nhân viên ======================= */
     /**
-     * Update employee
+     * PUT: Cập nhật thông tin nhân viên.
+     * - Tự động tạo lại employeeId nếu tên/SĐT thay đổi.
+     * - Nếu employeeId thay đổi, tự động cập nhật tất cả work history liên quan.
+     * - Validate employee tồn tại trước khi update.
      * @route PUT /api/employees/:id
      */
-    // async updateEmployee(req, res) {
-    //     try {
-    //         const { id } = req.params;
-    //         const { fullName, phoneNumber, gender, bankAccount, bankName, recruitmentLink, status } = req.body;
-            
-    //         const employeeId = larkServiceManager.getService('employee').generateEmployeeId(fullName, phoneNumber);
-    //         const updatedData = {
-    //             employeeId,
-    //             fullName,
-    //             phoneNumber,
-    //             gender,
-    //             bankAccount,
-    //             bankName,
-    //             recruitmentLink: recruitmentLink || '',
-    //             status,
-    //             updatedAt: new Date().toISOString()
-    //         };
-            
-    //         const employee = await larkServiceManager.updateEmployee(id, updatedData);
-            
-    //         console.log('✅ CONTROLLER: Employee updated successfully, clearing cache...');
-            
-    //         res.json(formatResponse(true, 'Cập nhật nhân viên thành công', { employee }));
-            
-    //     } catch (error) {
-    //         console.error('❌ Controller: updateEmployee failed:', error);
-    //         res.status(500).json(formatResponse(
-    //             false, 
-    //             `Lỗi khi cập nhật nhân viên: ${error.message}`, 
-    //             null, 
-    //             'EMPLOYEE_UPDATE_FAILED'
-    //         ));
-    //     }
-    // }
-
-
 
     async updateEmployee(req, res) {
         try {
@@ -1338,7 +1202,15 @@ class EmployeeController {
         }
     }
 
-    // ✅ THÊM: Method cập nhật employeeId trong work history
+
+
+    /**
+     * UTILITY: Cập nhật employeeId trong các work history records.
+     * - Được gọi khi employeeId thay đổi sau khi update employee.
+     * - Tìm tất cả work history của employee cũ và cập nhật sang ID mới.
+     * - Log kết quả nhưng không fail nếu một số records update lỗi.
+     */
+
     async updateWorkHistoryEmployeeId(oldEmployeeId, newEmployeeId) {
         try {
             console.log(`🔄 Updating work history: ${oldEmployeeId} -> ${newEmployeeId}`);
@@ -1394,33 +1266,15 @@ class EmployeeController {
     }
 
 
-
-
-
-
+    /* ======================= REGION: Xóa nhân viên ======================= */
     /**
-     * Delete employee
+     * DELETE: Xóa nhân viên và tất cả work history liên quan.
+     * - Validate employee tồn tại trước khi xóa.
+     * - Xóa tất cả work history records trước.
+     * - Chỉ xóa employee sau khi đã xóa hết work history thành công.
+     * - Fail nếu không thể xóa hết work history (để đảm bảo data consistency).
      * @route DELETE /api/employees/:id
      */
-    // async deleteEmployee(req, res) {
-    //     try {
-    //         const { id } = req.params;
-    //         await larkServiceManager.deleteEmployee(id);
-            
-    //         console.log('✅ CONTROLLER: Employee deleted successfully, clearing cache...');
-            
-    //         res.json(formatResponse(true, 'Xóa nhân viên thành công'));
-    //     } catch (error) {
-    //         console.error('❌ Controller: deleteEmployee failed:', error);
-    //         res.status(500).json(formatResponse(
-    //             false, 
-    //             `Lỗi khi xóa nhân viên: ${error.message}`, 
-    //             null, 
-    //             'EMPLOYEE_DELETE_FAILED'
-    //         ));
-    //     }
-    // }
-
 
     async deleteEmployee(req, res) {
         try {
@@ -4876,33 +4730,6 @@ class RecruitmentService extends BaseService {
     async updateRecruitmentRequest(id, requestData) {
         // Giữ nguyên logic
     }
-
-
-    // async getRequestByNo(requestNo) {
-    //     console.log('🔍 RECRUITMENT: Searching for request number:', requestNo);
-
-    //     // BƯỚC 1: Chủ động lấy TẤT CẢ các đề xuất tuyển dụng.
-    //     // Hàm này sẽ tự động dùng cache nếu có, hoặc gọi API nếu không.
-    //     const allRequests = await this.getRecruitmentRequests();
-        
-    //     if (!allRequests || allRequests.length === 0) {
-    //         console.log('⚠️ RECRUITMENT: No requests found to search in.');
-    //         return null;
-    //     }
-
-    //     // BƯỚC 2: Tìm kiếm trên danh sách `allRequests` vừa lấy được.
-    //     // Logic tìm kiếm bên trong `find` vẫn giữ nguyên.
-    //     const found = allRequests.find(record => {
-    //         // `record` ở đây đã được transform bởi `transformRecruitmentData`
-    //         // nên nó là một object phẳng, không cần `record.fields`.
-    //         const requestValue = record.requestNo;
-            
-    //         return String(requestValue || '').trim() === String(requestNo).trim();
-    //     });
-
-    //     console.log('🔍 RECRUITMENT: Search result:', found ? 'FOUND' : 'NOT_FOUND');
-    //     return found;
-    // }
 
 
     async getRequestByNo(requestNo) {
@@ -12973,7 +12800,7 @@ export const formatTimeForCSV = (serialNumber) => {
 3. THỐNG KÊ TỔNG QUAN:
 ----------------------------------------
 📊 Tổng số file đã phân tích: 97
-📊 Tổng số dòng code (ước tính): 24996
+📊 Tổng số dòng code (ước tính): 24650
 
 ================================================================================
 Báo cáo được tạo thành công!

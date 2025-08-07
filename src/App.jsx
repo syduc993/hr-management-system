@@ -25,39 +25,81 @@ const App = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        console.log('🚀 Bắt đầu khởi tạo ứng dụng React...');
-        
-        initializeGlobalUtilities();
-        
-        if (isProtectedPage()) {
-          console.log('🔐 Đang kiểm tra xác thực...');
-          const authUser = await checkAuth();
-          if (!authUser && !isPublicPage()) {
-            console.log('❌ Xác thực thất bại cho trang được bảo vệ');
-            return;
-          }
-          console.log('✅ Hoàn thành kiểm tra xác thực');
+
+  const initializeApp = async () => {
+    try {
+      console.log('🚀 Bắt đầu khởi tạo ứng dụng React...');
+      
+      initializeGlobalUtilities();
+      
+      if (isProtectedPage()) {
+        console.log('🔐 Đang kiểm tra xác thực...');
+        const authUser = await checkAuth();
+        if (!authUser && !isPublicPage()) {
+          console.log('❌ Xác thực thất bại cho trang được bảo vệ');
+          // ✅ SỬA: Đặt initialized = true để redirect về login
+          setInitialized(true);
+          return;
         }
-        
-        setInitialized(true);
-        console.log('✅ Khởi tạo ứng dụng React thành công');
-        
-      } catch (error) {
-        console.error('❌ Lỗi khởi tạo ứng dụng:', error);
-        
-        if (error.name === 'TypeError') {
-          showNotification('Lỗi tải module. Vui lòng refresh trang.', 'error');
-        } else if (error.message.includes('fetch')) {
-          showNotification('Lỗi kết nối server. Vui lòng kiểm tra mạng.', 'error');
-        } else {
-          showNotification('Lỗi khởi tạo ứng dụng. Vui lòng refresh trang.', 'error');
-        }
-      } finally {
-        setLoading(false);
+        console.log('✅ Hoàn thành kiểm tra xác thực');
       }
-    };
+      
+      setInitialized(true);
+      console.log('✅ Khởi tạo ứng dụng React thành công');
+      
+    } catch (error) {
+      console.error('❌ Lỗi khởi tạo ứng dụng:', error);
+      
+      // ✅ SỬA: Luôn set initialized = true để cho phép render Routes
+      setInitialized(true);
+      
+      // Chỉ hiện notification, không chặn ứng dụng
+      if (error.name === 'TypeError') {
+        showNotification('Lỗi tải module. Vui lòng refresh trang.', 'error');
+      } else if (error.message.includes('fetch')) {
+        showNotification('Lỗi kết nối server. Vui lòng kiểm tra mạng.', 'error');
+      } else {
+        showNotification('Lỗi khởi tạo ứng dụng. Vui lòng refresh trang.', 'error');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+    // const initializeApp = async () => {
+    //   try {
+    //     console.log('🚀 Bắt đầu khởi tạo ứng dụng React...');
+        
+    //     initializeGlobalUtilities();
+        
+    //     if (isProtectedPage()) {
+    //       console.log('🔐 Đang kiểm tra xác thực...');
+    //       const authUser = await checkAuth();
+    //       if (!authUser && !isPublicPage()) {
+    //         console.log('❌ Xác thực thất bại cho trang được bảo vệ');
+    //         return;
+    //       }
+    //       console.log('✅ Hoàn thành kiểm tra xác thực');
+    //     }
+        
+    //     setInitialized(true);
+    //     console.log('✅ Khởi tạo ứng dụng React thành công');
+        
+    //   } catch (error) {
+    //     console.error('❌ Lỗi khởi tạo ứng dụng:', error);
+        
+    //     if (error.name === 'TypeError') {
+    //       showNotification('Lỗi tải module. Vui lòng refresh trang.', 'error');
+    //     } else if (error.message.includes('fetch')) {
+    //       showNotification('Lỗi kết nối server. Vui lòng kiểm tra mạng.', 'error');
+    //     } else {
+    //       showNotification('Lỗi khởi tạo ứng dụng. Vui lòng refresh trang.', 'error');
+    //     }
+    //   } finally {
+    //     setLoading(false);
+    //   }
+    // };
 
     initializeApp();
   }, []);
@@ -105,26 +147,32 @@ const App = () => {
   }
 
   if (!initialized) {
-    return (
-      <div className="container mt-5">
-        <div className="alert alert-danger">
-          <h4>Lỗi khởi tạo ứng dụng</h4>
-          <p>Không thể khởi tạo ứng dụng. Vui lòng:</p>
-          <ul>
-            <li>Refresh lại trang (F5)</li>
-            <li>Kiểm tra kết nối mạng</li>
-            <li>Liên hệ IT support nếu vấn đề vẫn tiếp tục</li>
-          </ul>
-          <button 
-            className="btn btn-primary" 
-            onClick={() => window.location.reload()}
-          >
-            Refresh Trang
-          </button>
-        </div>
-      </div>
-    );
+    // Redirect về login khi có lỗi khởi tạo
+    return <Navigate to="/login" replace />;
   }
+
+
+  // if (!initialized) {
+  //   return (
+  //     <div className="container mt-5">
+  //       <div className="alert alert-danger">
+  //         <h4>Lỗi khởi tạo ứng dụng</h4>
+  //         <p>Không thể khởi tạo ứng dụng. Vui lòng:</p>
+  //         <ul>
+  //           <li>Refresh lại trang (F5)</li>
+  //           <li>Kiểm tra kết nối mạng</li>
+  //           <li>Liên hệ IT support nếu vấn đề vẫn tiếp tục</li>
+  //         </ul>
+  //         <button 
+  //           className="btn btn-primary" 
+  //           onClick={() => window.location.reload()}
+  //         >
+  //           Refresh Trang
+  //         </button>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className="App">
