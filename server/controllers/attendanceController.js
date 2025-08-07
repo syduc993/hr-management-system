@@ -2,6 +2,13 @@
 import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
 
+
+/* ======================= REGION: Lấy danh sách bản ghi chấm công ======================= */
+/**
+ * GET: Lấy danh sách các bản ghi chấm công (attendance logs) dựa trên filter từ query parameters.
+ * - Trả về data bản ghi chấm công dạng list.
+ * - Xử lý lỗi và gửi error message nếu có vấn đề.
+ */
 export const getAttendanceLogs = async (req, res) => {
     try {
         const filters = req.query;
@@ -20,6 +27,16 @@ export const getAttendanceLogs = async (req, res) => {
     }
 };
 
+
+
+/* ======================= REGION: Thêm bản ghi chấm công mới ======================= */
+/**
+ * POST: Thêm một bản ghi chấm công mới cho nhân viên.
+ * - Nhận attendanceData từ body request (employeeId, type, position).
+ * - Validate dữ liệu (đầy đủ, hợp lệ).
+ * - Gọi service để lưu bản ghi mới vào hệ thống.
+ * - Trả kết quả thành công/thất bại cho client.
+ */
 export const addAttendanceLog = async (req, res) => {
     try {
         const attendanceData = req.body;
@@ -70,7 +87,16 @@ export const addAttendanceLog = async (req, res) => {
     }
 };
 
-// ✅ CẬP NHẬT: Method tính tổng giờ công với logic mới
+
+/* ======================= REGION: Tính tổng giờ công tất cả nhân viên ======================= */
+/**
+ * GET: Lấy tổng hợp giờ công cho tất cả nhân viên (theo từng ngày).
+ * - Lấy dữ liệu giờ công từ service.
+ * - Gắn thêm thông tin nhân viên (tên, position, ...) vào mỗi record.
+ * - Trả về list tổng hợp theo ngày + một số summary.
+ */
+
+
 export const getEmployeeHours = async (req, res) => {
     try {
         console.log('📊 Controller: Getting employee hours...');
@@ -141,7 +167,14 @@ export const getEmployeeHours = async (req, res) => {
     }
 };
 
-// ✅ THÊM: Method lấy tổng hợp thống kê chấm công
+
+/* ======================= REGION: Thống kê tổng hợp chấm công ======================= */
+/**
+ * GET: Lấy thống kê tổng hợp chấm công trong khoảng thời gian (ngày bắt đầu/kết thúc).
+ * - Tổng số lượt chấm công (totalLogs).
+ * - Số nhân viên duy nhất (uniqueEmployees).
+ * - Thống kê theo loại (Checkin/Checkout) và theo vị trí.
+ */
 export const getAttendanceStats = async (req, res) => {
     try {
         const { dateFrom, dateTo } = req.query;
@@ -185,7 +218,16 @@ export const getAttendanceStats = async (req, res) => {
     }
 };
 
-// ✅ THÊM: Method lấy giờ công chi tiết của một nhân viên
+
+
+
+/* ======================= REGION: Giờ công chi tiết 1 nhân viên ======================= */
+/**
+ * GET: Lấy chi tiết giờ công của một nhân viên (theo employeeId và khoảng ngày).
+ * - list bản ghi raw (logs).
+ * - bảng tổng hợp giờ công từng ngày (dailyHours).
+ * - tổng kết số ngày và tổng số giờ thực tế.
+ */
 export const getEmployeeDetailedHours = async (req, res) => {
     try {
         const { employeeId } = req.params;

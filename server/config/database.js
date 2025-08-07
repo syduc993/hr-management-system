@@ -3,7 +3,7 @@ const users = {
     admin: {
         id: 'admin',
         username: 'admin',
-        password: 'admin123',
+        password: 'atino2025',
         role: 'admin',
         fullName: 'System Admin'
     },
