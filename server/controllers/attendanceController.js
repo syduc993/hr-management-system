@@ -28,7 +28,6 @@ export const getAttendanceLogs = async (req, res) => {
 };
 
 
-
 /* ======================= REGION: Thêm bản ghi chấm công mới ======================= */
 /**
  * POST: Thêm một bản ghi chấm công mới cho nhân viên.
@@ -99,7 +98,6 @@ export const addAttendanceLog = async (req, res) => {
 
 export const getEmployeeHours = async (req, res) => {
     try {
-        console.log('📊 Controller: Getting employee hours...');
         
         const attendanceService = larkServiceManager.getService('attendance');
         const employeeService = larkServiceManager.getService('employee');
@@ -217,8 +215,6 @@ export const getAttendanceStats = async (req, res) => {
         ));
     }
 };
-
-
 
 
 /* ======================= REGION: Giờ công chi tiết 1 nhân viên ======================= */

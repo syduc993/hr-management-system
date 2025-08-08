@@ -3,6 +3,12 @@ import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
 
+
+/**
+ * @class AttendanceService
+ * @description Quản lý tất cả các nghiệp vụ liên quan đến chấm công,
+ * bao gồm lấy dữ liệu từ Lark Base, thêm bản ghi mới, và tính toán giờ làm.
+ */
 class AttendanceService extends BaseService {
     constructor() {
         super();
@@ -14,6 +20,18 @@ class AttendanceService extends BaseService {
         console.log('Initializing Attendance Service...');
     }
 
+
+    // =================================================================
+    //  PUBLIC API METHODS - CÁC HÀM CUNG CẤP RA BÊN NGOÀI
+    // =================================================================
+
+    /** Lấy danh sách bản ghi chấm công từ Lark Bitable, có hỗ trợ cache và bộ lọc.
+     * @param {object} [filters={}] - Các bộ lọc để truy vấn.
+     * @param {string} [filters.employeeId] - Lọc theo Mã nhân viên.
+     * @param {string} [filters.dateFrom] - Lọc từ ngày (YYYY-MM-DD).
+     * @param {string} [filters.dateTo] - Lọc đến ngày (YYYY-MM-DD).
+     * @returns {Promise<Array<object>>} - Mảng các bản ghi chấm công đã được chuyển đổi.
+     */
     async getAttendanceLogs(filters = {}) {
         const cacheKey = `attendance_logs_${JSON.stringify(filters)}`;
         let logs = CacheService.get(cacheKey);
@@ -24,7 +42,6 @@ class AttendanceService extends BaseService {
         }
 
         try {
-            console.log('📡 ATTENDANCE: Fetching all attendance logs from Lark...');
             
             // Xây dựng các tham số cho API
             const params = {};
@@ -40,16 +57,16 @@ class AttendanceService extends BaseService {
             );
 
             logs = this.transformAttendanceData(response.data?.items || []);
-            console.log(`✅ ATTENDANCE: Transformed ${logs.length} total records from Lark.`);
+
             
             // Lọc theo ngày (sau khi đã lấy hết dữ liệu)
             if (filters.dateFrom || filters.dateTo) {
                 logs = this.filterByDateRange(logs, filters.dateFrom, filters.dateTo);
-                console.log(`✅ ATTENDANCE: Filtered by date range, resulting in ${logs.length} records.`);
+
             }
             
             CacheService.set(cacheKey, logs, 300000); // Cache trong 5 phút
-            console.log(`✅ ATTENDANCE: Cached ${logs.length} records.`);
+
 
         } catch (error) {
             console.error('❌ Error fetching attendance logs:', error);
@@ -59,6 +76,11 @@ class AttendanceService extends BaseService {
         return logs;
     }
 
+
+    /** Thêm một bản ghi chấm công mới vào Lark Bitable.
+     * @param {object} attendanceData - Dữ liệu chấm công cần thêm.
+     * @returns {Promise<object>} - Bản ghi chấm công đã được tạo và chuyển đổi.
+     */
     async addAttendanceLog(attendanceData) {
         try {
             const transformedData = this.transformAttendanceForLark(attendanceData);
@@ -77,7 +99,12 @@ class AttendanceService extends BaseService {
         }
     }
 
-    // ✅ CẬP NHẬT: getEmployeeHours để hiển thị tất cả nhân viên
+
+    /**
+     * Lấy và tổng hợp giờ làm cho tất cả nhân viên có phát sinh chấm công.
+     * @returns {Promise<object>} - Một đối tượng với key là employeeId và value là mảng các ngày công.
+     * Ví dụ: { "NV001": [{ date: "2025-08-08", totalHours: "8 giờ 0 phút", ... }] }
+     */
     async getEmployeeHours() {
         const logs = await this.getAttendanceLogs();
         console.log('🔍 Total attendance logs:', logs.length);
@@ -111,15 +138,18 @@ class AttendanceService extends BaseService {
         return employeeHours;
     }
 
+    // =================================================================
+    //  BUSINESS LOGIC & CALCULATIONS - LOGIC NGHIỆP VỤ & TÍNH TOÁN
+    // =================================================================
 
-    // ✅ CẬP NHẬT: Thêm more detailed debugging
+
+    /**
+     * Gom nhóm các bản ghi chấm công theo mã nhân viên và ngày.
+     * @param {Array<object>} logs - Mảng các bản ghi chấm công.
+     * @returns {object} - Đối tượng đã được gom nhóm. 
+     * Ví dụ: { "NV001": { "2025-08-08": [log1, log2] } }
+     */
     groupLogsByEmployeeAndDate(logs) {
-        console.log('🔍 DEBUG: Raw logs for grouping:', logs.map(log => ({
-            employeeId: log.employeeId,
-            date: log.date,
-            type: log.type,
-            timestamp: log.timestamp
-        })));
         
         const grouped = {};
         
@@ -140,16 +170,18 @@ class AttendanceService extends BaseService {
             grouped[log.employeeId][log.date].push(log);
         });
         
-        console.log('🔍 DEBUG: Grouped logs:', Object.keys(grouped).map(empId => ({
-            employeeId: empId,
-            dates: Object.keys(grouped[empId]),
-            totalRecords: Object.values(grouped[empId]).flat().length
-        })));
         
         return grouped;
     }
 
-    // ✅ TÍNH GIỜ CÔNG THEO NGÀY VÀ CHỨC VỤ
+
+    /**
+     * Hàm điều phối: Tính toán giờ làm trong một ngày dựa trên chức vụ của nhân viên.
+     * @param {string} employeeId - Mã nhân viên.
+     * @param {string} date - Ngày tính công (YYYY-MM-DD).
+     * @param {Array<object>} dayLogs - Mảng các bản ghi chấm công trong ngày đó.
+     * @returns {object} - Kết quả giờ công và các cảnh báo.
+     */
     calculateDailyHours(employeeId, date, dayLogs) {
         if (dayLogs.length === 0) {
             return {
@@ -162,7 +194,13 @@ class AttendanceService extends BaseService {
         return this.calculateSimpleHours(dayLogs)
     }
 
-    // ✅ THÊM: Logic đơn giản cho tất cả nhân viên
+
+    /**
+     * Logic tính giờ mặc định: lấy check-in sớm nhất và check-out muộn nhất trong ngày.
+     * Phù hợp cho nhân viên có lịch làm việc linh hoạt hoặc không theo ca cố định.
+     * @param {Array<object>} dayLogs - Các log chấm công trong ngày.
+     * @returns {object} - Kết quả giờ công.
+     */
     calculateSimpleHours(dayLogs) {
         const checkinLogs = dayLogs.filter(log => log.type === 'Checkin');
         const checkoutLogs = dayLogs.filter(log => log.type === 'Checkout');
@@ -210,7 +248,12 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ TÍNH GIỜ CHO MASCOT (4 lần chấm công/ngày)
+
+    /**
+     * Logic tính giờ cho Mascot: yêu cầu chấm công 4 lần/ngày (vào/ra ca sáng, vào/ra ca chiều).
+     * @param {Array<object>} dayLogs - Các log chấm công trong ngày.
+     * @returns {object} - Kết quả giờ công buổi sáng, chiều và tổng cộng.
+     */
     calculateMascotHours(dayLogs) {
         // Kiểm tra số lần chấm công
         if (dayLogs.length !== 4) {
@@ -249,7 +292,12 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ TÍNH GIỜ CHO NHÂN VIÊN THỜI VỤ (2 lần chấm công/ngày)
+
+    /**
+     * Logic tính giờ cho nhân viên thời vụ: yêu cầu đúng 1 check-in và 1 check-out.
+     * @param {Array<object>} dayLogs - Các log chấm công trong ngày.
+     * @returns {object} - Kết quả giờ công.
+     */
     calculateRegularHours(dayLogs) {
         const checkinLog = dayLogs.find(log => log.type === 'Checkin');
         const checkoutLog = dayLogs.find(log => log.type === 'Checkout');
@@ -276,7 +324,12 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ TÍNH GIỜ CHO 1 CA (DÙNG CHO MASCOT)
+
+    /**
+     * Tính toán giờ làm cho một ca đơn lẻ (gồm 1 check-in và 1 check-out) (Dùng cho masscot).
+     * @param {Array<object>} shiftLogs - Các log trong một ca.
+     * @returns {{hours: number, warnings: Array<string>}} - Số giờ và cảnh báo.
+     */
     calculateShiftHours(shiftLogs) {
         const checkin = shiftLogs.find(log => log.type === 'Checkin');
         const checkout = shiftLogs.find(log => log.type === 'Checkout');
@@ -298,60 +351,16 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ FORMAT HIỂN THỊ GIỜ: "8 giờ 30 phút"
-    formatHoursDisplay(totalHours) {
-        if (!totalHours || totalHours === 0) return '0 giờ 0 phút';
-        
-        const hours = Math.floor(totalHours);
-        const minutes = Math.round((totalHours - hours) * 60);
-        
-        if (minutes === 0) {
-            return `${hours} giờ`;
-        } else if (hours === 0) {
-            return `${minutes} phút`;
-        } else {
-            return `${hours} giờ ${minutes} phút`;
-        }
-    }
 
-    // ✅ FILTER THEO KHOẢNG NGÀY
-    filterByDateRange(logs, dateFrom, dateTo) {
-        return logs.filter(log => {
-            const logDate = new Date(log.date);
-            const fromDate = dateFrom ? new Date(dateFrom) : null;
-            const toDate = dateTo ? new Date(dateTo) : null;
-            
-            if (fromDate && logDate < fromDate) return false;
-            if (toDate && logDate > toDate) return false;
-            
-            return true;
-        });
-    }
+    // =================================================================
+    //  DATA TRANSFORMATION & FILTERING - CHUYỂN ĐỔI & LỌC DỮ LIỆU
+    // =================================================================
 
-    // ✅ SỬA: HELPER FUNCTIONS với timestamp conversion đúng
-    convertUnixToDateTime(unixTimestamp) {
-        if (!unixTimestamp) return '';
-        
-        console.log('🔍 Raw timestamp:', unixTimestamp, typeof unixTimestamp);
-        
-        // Nếu timestamp đã là ISO string
-        if (typeof unixTimestamp === 'string' && unixTimestamp.includes('T')) {
-            const date = new Date(unixTimestamp);
-            if (date.getFullYear() > 2000 && date.getFullYear() < 2100) {
-                return unixTimestamp;
-            }
-        }
-        
-        // ✅ QUAN TRỌNG: Timestamp từ Lark đã là milliseconds, không nhân 1000
-        if (typeof unixTimestamp === 'number') {
-            return new Date(unixTimestamp).toISOString();
-        }
-        
-        console.warn('⚠️ Invalid timestamp format:', unixTimestamp);
-        return new Date().toISOString();
-    }
-
-    // ✅ SỬA: Sử dụng trực tiếp timestamp từ convertUnixToDateTime
+    /**
+     * Chuyển đổi dữ liệu chấm công thô từ Lark Bitable thành một đối tượng có cấu trúc rõ ràng.
+     * @param {Array<object>} larkData - Mảng các bản ghi từ API của Lark.
+     * @returns {Array<object>} - Mảng các bản ghi đã được chuyển đổi.
+     */
     transformAttendanceData(larkData) {
         
         return larkData.map(record => {
@@ -360,7 +369,6 @@ class AttendanceService extends BaseService {
             
             if (Array.isArray(employeeIdField) && employeeIdField.length > 0) {
                 employeeId = employeeIdField[0]?.text || '';
-                console.log('🔍 EXTRACTED EMPLOYEE ID:', employeeId);
             } else if (typeof employeeIdField === 'string') {
                 employeeId = employeeIdField;
             }
@@ -384,7 +392,12 @@ class AttendanceService extends BaseService {
         });
     }
 
-    // ✅ TRANSFORM DỮ LIỆU ĐỂ GỬI VỀ LARKBASE
+
+    /**
+     * Chuyển đổi dữ liệu từ ứng dụng sang định dạng mà API của Lark Bitable yêu cầu.
+     * @param {object} attendanceData - Dữ liệu chấm công từ ứng dụng.
+     * @returns {object} - Đối tượng `fields` để gửi cho Lark.
+     */
     transformAttendanceForLark(attendanceData) {
         return {
             'Mã nhân viên': attendanceData.employeeId,
@@ -396,7 +409,39 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ THÊM: Helper method để extract employeeId từ Lark field
+
+    /**
+     * Lọc một danh sách các bản ghi chấm công theo khoảng ngày.
+     * @param {Array<object>} logs - Mảng các bản ghi chấm công.
+     * @param {string} dateFrom - Ngày bắt đầu (YYYY-MM-DD).
+     * @param {string} dateTo - Ngày kết thúc (YYYY-MM-DD).
+     * @returns {Array<object>} - Mảng các bản ghi đã được lọc.
+     */
+    filterByDateRange(logs, dateFrom, dateTo) {
+        return logs.filter(log => {
+            const logDate = new Date(log.date);
+            const fromDate = dateFrom ? new Date(dateFrom) : null;
+            const toDate = dateTo ? new Date(dateTo) : null;
+            
+            if (fromDate && logDate < fromDate) return false;
+            if (toDate && logDate > toDate) return false;
+            
+            return true;
+        });
+    }
+
+
+
+    // =================================================================
+    //  UTILITY HELPERS - CÁC HÀM TIỆN ÍCH
+    // =================================================================
+
+
+    /**
+     * Trích xuất mã nhân viên từ trường dữ liệu của Lark (có thể là string hoặc array).
+     * @param {string|Array} employeeIdField - Dữ liệu từ cột "Mã nhân viên".
+     * @returns {string} - Mã nhân viên dạng chuỗi.
+     */
     extractEmployeeId(employeeIdField) {
         if (!employeeIdField) return '';
         
@@ -419,6 +464,55 @@ class AttendanceService extends BaseService {
         console.warn('⚠️ Unknown employeeId format:', employeeIdField);
         return '';
     }
+
+
+    /**
+     * Chuyển đổi timestamp từ Lark (có thể là Unix milliseconds hoặc ISO string) sang định dạng ISO string.
+     * @param {number|string} timestampValue - Giá trị timestamp từ Lark.
+     * @returns {string} - Chuỗi ISO 8601 (ví dụ: "2025-08-08T10:00:00.000Z").
+     */
+    convertUnixToDateTime(unixTimestamp) {
+        if (!unixTimestamp) return '';
+        
+        // Nếu timestamp đã là ISO string
+        if (typeof unixTimestamp === 'string' && unixTimestamp.includes('T')) {
+            const date = new Date(unixTimestamp);
+            if (date.getFullYear() > 2000 && date.getFullYear() < 2100) {
+                return unixTimestamp;
+            }
+        }
+        
+        // ✅ QUAN TRỌNG: Timestamp từ Lark đã là milliseconds, không nhân 1000
+        if (typeof unixTimestamp === 'number') {
+            return new Date(unixTimestamp).toISOString();
+        }
+        
+        console.warn('⚠️ Invalid timestamp format:', unixTimestamp);
+        return new Date().toISOString();
+    }
+
+
+    /**
+     * Định dạng tổng số giờ sang chuỗi hiển thị "X giờ Y phút".
+     * @param {number} totalHours - Tổng số giờ (ví dụ: 8.5).
+     * @returns {string} - Chuỗi đã định dạng (ví dụ: "8 giờ 30 phút").
+     */
+    formatHoursDisplay(totalHours) {
+        if (!totalHours || totalHours === 0) return '0 giờ 0 phút';
+        
+        const hours = Math.floor(totalHours);
+        const minutes = Math.round((totalHours - hours) * 60);
+        
+        if (minutes === 0) {
+            return `${hours} giờ`;
+        } else if (hours === 0) {
+            return `${minutes} phút`;
+        } else {
+            return `${hours} giờ ${minutes} phút`;
+        }
+    }
+
 }
+
 
 export default AttendanceService;

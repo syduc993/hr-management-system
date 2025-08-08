@@ -34,22 +34,20 @@ class RecruitmentService extends BaseService {
 
     async getRecruitmentRequests(filters = {}) {
         try {
-            console.log('📡 RECRUITMENT: Fetching ALL recruitment requests from Lark...');
             
             const response = await LarkClient.getAllRecords(
                 `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
             );
 
             let requests = this.transformRecruitmentData(response.data?.items || []);
-            console.log(`✅ RECRUITMENT: Retrieved ${requests.length} total records from Lark`);
+
             
             // ✅ SỬA: Filter ở application level - chỉ lấy chính xác "Approved" và "Under Review"
             if (filters.status) {
                 const statusArray = Array.isArray(filters.status) 
                     ? filters.status 
                     : filters.status.split(',').map(s => s.trim());
-                
-                console.log('🔍 RECRUITMENT: Filtering by status:', statusArray);
+            
                 
                 requests = requests.filter(request => {
                     const requestStatus = request.status;
@@ -60,7 +58,6 @@ class RecruitmentService extends BaseService {
                 });
             }
 
-            console.log(`✅ RECRUITMENT: After filtering: ${requests.length} records`);
             return requests;
             
         } catch (error) {
@@ -130,13 +127,6 @@ class RecruitmentService extends BaseService {
             originalRecordCount: matchingRecords.length
         };
 
-        console.log('✅ RECRUITMENT: Merged record:', {
-            requestNo,
-            fromDate: mergedRecord.fromDateFormatted,
-            toDate: mergedRecord.toDateFormatted,
-            recordCount: matchingRecords.length
-        });
-
         return mergedRecord;
     }
 
@@ -162,11 +152,9 @@ class RecruitmentService extends BaseService {
     // ✅ THAY ĐỔI LOGIC CỐT LÕI TẠI ĐÂY
     async getRecruitmentHoursSummary() {
         try {
-            console.log('📊 Getting recruitment hours summary with NEW logic...');
 
             // 1. Lấy tất cả recruitment requests
             const recruitmentRequests = await this.getRecruitmentRequests();
-            console.log('📋 RECRUITMENT REQUESTS:', recruitmentRequests.length, 'requests found');
 
             // 2. Lấy services cần thiết
             const employeeService = larkServiceManager.getService('employee');
@@ -174,19 +162,14 @@ class RecruitmentService extends BaseService {
             // 3. Lấy dữ liệu cần thiết để mapping
             const allWorkHistory = await this.getAllWorkHistory();
             const allEmployees = await employeeService.getAllEmployees();
-            console.log('📚 WORK HISTORY:', allWorkHistory.length, 'records');
-            console.log('👥 EMPLOYEES:', allEmployees.length, 'employees');
 
             // ✅ CẬP NHẬT: Lấy cả hours và salary maps
             const mapsResult = await this.getEmployeeHoursFromSummaryTable();
             const employeeHoursMap = mapsResult.hoursMap;
             const employeeSalaryMap = mapsResult.salaryMap;
-            console.log('⏰ EMPLOYEE HOURS MAP:', employeeHoursMap.size, 'entries');
-            console.log('💰 EMPLOYEE SALARY MAP:', employeeSalaryMap.size, 'entries');
 
             // 4. Tạo map để lookup nhanh
             const employeeMap = new Map(allEmployees.map(emp => [emp.employeeId, emp]));
-            console.log('👤 EMPLOYEE MAP:', employeeMap.size, 'entries');
 
             // ✅ THÊM: Group requests by requestNo để merge
             const groupedRequests = new Map();
@@ -204,7 +187,6 @@ class RecruitmentService extends BaseService {
 
             // ✅ CẬP NHẬT: Process theo grouped requests
             for (const [requestNo, requestGroup] of groupedRequests.entries()) {
-                console.log(`\n🔄 Processing merged request: ${requestNo} (${requestGroup.length} records)`);
                 
                 // ✅ MERGE: Lấy thông tin từ record đầu tiên, merge ngày tháng
                 const baseRequest = requestGroup[0];
@@ -237,12 +219,6 @@ class RecruitmentService extends BaseService {
                     employeeSalaryMap // ✅ THÊM: Pass salary map
                 );
 
-                console.log(`📊 Request ${requestNo} summary:`, {
-                    totalEmployees: requestSummary.totalEmployees,
-                    totalHoursNumeric: requestSummary.totalHoursNumeric,
-                    totalSalaryNumeric: requestSummary.totalSalaryNumeric // ✅ THÊM
-                });
-
                 totalCalculatedHours += requestSummary.totalHoursNumeric;
                 totalCalculatedSalary += requestSummary.totalSalaryNumeric; // ✅ THÊM
 
@@ -250,11 +226,6 @@ class RecruitmentService extends BaseService {
                     hoursSummary.push(requestSummary);
                 }
             }
-
-            console.log(`\n📊 FINAL CALCULATION RESULT:`);
-            console.log(`- Total requests: ${hoursSummary.length}`);
-            console.log(`- Total hours: ${totalCalculatedHours}`);
-            console.log(`- Total salary: ${totalCalculatedSalary}`); // ✅ THÊM
 
             return hoursSummary;
 
@@ -267,13 +238,9 @@ class RecruitmentService extends BaseService {
 
     // ✅ HÀM MỚI: Lấy dữ liệu từ bảng tổng hợp giờ công
     async getEmployeeHoursFromSummaryTable() {
-        console.log('📡 Fetching data from hours summary table...');
         const cacheKey = 'hours_summary_table_data';
         let cachedData = CacheService.get(cacheKey);
         if (cachedData) {
-            console.log('✅ Loaded hours summary from cache.');
-            console.log('🗂️ CACHED HOURS MAP:', Array.from(cachedData.hoursMap.entries()));
-            console.log('💰 CACHED SALARY MAP:', Array.from(cachedData.salaryMap.entries()));
             return cachedData;
         }
 
@@ -282,7 +249,7 @@ class RecruitmentService extends BaseService {
                 `/bitable/v1/apps/${this.baseId}/tables/${this.hoursSummaryTableId}/records`
             );
             const records = response.data?.items || [];
-            console.log('📄 RAW HOURS SUMMARY RECORDS:', records.length, 'records');
+
 
             const employeeHoursMap = new Map();
             const employeeSalaryMap = new Map();
@@ -290,10 +257,8 @@ class RecruitmentService extends BaseService {
 
             records.forEach((record, index) => {
                 const fields = record.fields;
-                console.log(`\n📝 Record #${index + 1} FULL FIELDS:`, fields);
                 
                 const employeeIdField = fields['Mã nhân viên'];
-                console.log(`Record #${index + 1} - Mã nhân viên:`, employeeIdField, '| Type:', typeof employeeIdField);
                 
                 let employeeId = '';
                 if (Array.isArray(employeeIdField) && employeeIdField.length > 0) {
@@ -306,7 +271,6 @@ class RecruitmentService extends BaseService {
                 // ✅ THÊM: Lấy cột lương với nhiều tên có thể
                 const salary = fields['Lương'] || 0;
                 const hourlyRate = fields['Mức lương/giờ'] || 0;
-                console.log(`📊 Record #${index + 1} - Employee: "${employeeId}", Hours: ${totalHours}, Salary: ${salary}`);
 
                 if (employeeId) {
                     // ✅ CỘNG DỒN GIỜ CÔNG
@@ -323,15 +287,11 @@ class RecruitmentService extends BaseService {
                     if (hourlyRate > 0) {
                         employeeHourlyRateMap.set(employeeId, hourlyRate);
                     }
-
-                    console.log(`✅ Updated: "${employeeId}" -> Hours: ${currentHours} + ${totalHours} = ${newTotalHours}, Salary: ${currentSalary} + ${salary} = ${newTotalSalary}`);
                 } else {
                     console.log(`⚠️ Skipped record #${index + 1} - No valid employeeId`);
                 }
             });
 
-            console.log(`\n🗺️ FINAL EMPLOYEE HOURS MAP:`, Array.from(employeeHoursMap.entries()));
-            console.log(`💰 FINAL EMPLOYEE SALARY MAP:`, Array.from(employeeSalaryMap.entries()));
             
             // ✅ THAY ĐỔI: Trả về object chứa cả hours và salary maps
             const result = {
@@ -342,7 +302,6 @@ class RecruitmentService extends BaseService {
             };
             
             CacheService.set(cacheKey, result, 300000);
-            console.log(`✅ Created maps - Hours: ${employeeHoursMap.size}, Salary: ${employeeSalaryMap.size} entries.`);
             return result;
         } catch (error) {
             console.error('❌ Error fetching from hours summary table:', error);
@@ -358,13 +317,11 @@ class RecruitmentService extends BaseService {
 
     // ✅ HÀM ĐƯỢC CẬP NHẬT: Thay đổi logic tính toán
     async calculateRequestHours(request, allWorkHistory, employeeMap, employeeHoursMap, employeeSalaryMap) {
-        console.log(`\n🔍 CALCULATING for REQUEST: ${request.requestNo}`);
         
         const requestEmployees = allWorkHistory.filter(wh => wh.requestNo === request.requestNo);
         
         // ✅ THÊM: Đếm unique employees
         const uniqueEmployeeIds = [...new Set(requestEmployees.map(re => re.employeeId))];
-        console.log(`👥 Found ${uniqueEmployeeIds.length} UNIQUE employees for request ${request.requestNo}`);
 
         const employeeDetails = [];
         let totalRequestHours = 0;
@@ -411,7 +368,6 @@ class RecruitmentService extends BaseService {
 
     async getDetailedHoursForRequest(requestNo) {
         try {
-            console.log(`📊 Getting detailed hours for request: ${requestNo}`);
             
             // Lấy chi tiết từ bảng Hours Summary (tblV2dGhT2O7w30b)
             const response = await LarkClient.getAllRecords(
@@ -419,8 +375,6 @@ class RecruitmentService extends BaseService {
             );
             
             const allRecords = response.data?.items || [];
-            console.log(`📄 Found ${allRecords.length} total records in hours summary table`);
-        
 
             // Lấy danh sách nhân viên thuộc request này từ Work History
             const workHistoryService = larkServiceManager.getService('workHistory');
@@ -429,8 +383,6 @@ class RecruitmentService extends BaseService {
             const employeesInRequest = workHistoryRecords
                 .filter(wh => wh.requestNo === requestNo)
                 .map(wh => wh.employeeId);
-                
-            console.log(`👥 Employees in request ${requestNo}:`, employeesInRequest);
             
             // Lọc và transform dữ liệu
             const detailedRecords = [];
@@ -462,7 +414,6 @@ class RecruitmentService extends BaseService {
                 }
             });
             
-            console.log(`✅ Retrieved ${detailedRecords.length} detailed records for request ${requestNo}`);
             return detailedRecords;
             
         } catch (error) {
@@ -570,18 +521,15 @@ class RecruitmentService extends BaseService {
         let history = CacheService.get(cacheKey);
 
         if (history) {
-            console.log(`✅ WORK HISTORY: Loaded ${history.length} records from cache.`);
             return history;
         }
 
         try {
-            console.log('📡 WORK HISTORY: Fetching all work history from Lark...');
             const response = await LarkClient.getAllRecords(
                 `/bitable/v1/apps/${process.env.LARK_BASE_ID}/tables/${process.env.LARK_WORK_HISTORY_TABLE_ID}/records`
             );
 
             history = this.transformWorkHistoryData(response.data?.items || []);
-            console.log(`✅ WORK HISTORY: Transformed ${history.length} total records.`);
 
             CacheService.set(cacheKey, history, 300000);
             return history;
@@ -605,14 +553,14 @@ class RecruitmentService extends BaseService {
             requestNo: this.extractRequestNo(record.fields['Request No.']),
             requester: this.extractRequesterName(record.fields['Requester']),
             status: record.fields['Status'] || '',
-            department: record.fields['Details_Phòng ban'] || record.fields['Department'] || '',
-            quantity: record.fields['Details_Số lượng cần tuyển'] || record.fields['Quantity'] || '',
-            gender: record.fields['Details_Giới tính'] || record.fields['Gender'] || '',
-            fromDate: record.fields['Details_Từ ngày'] || record.fields['From Date'] || '',
-            toDate: record.fields['Details_Đến ngày'] || record.fields['To Date'] || '',
-            fromDateFormatted: formatDate(record.fields['Details_Từ ngày'] || record.fields['From Date'] || ''),
-            toDateFormatted: formatDate(record.fields['Details_Đến ngày'] || record.fields['To Date'] || ''),
-            position: record.fields['Details_Vị trí'] || record.fields['Position'] || '',
+            department: record.fields['Details_Phòng ban'] || '',
+            quantity: record.fields['Details_Số lượng cần tuyển'] || '',
+            gender: record.fields['Details_Giới tính'] || '',
+            fromDate: record.fields['Details_Từ ngày'] || '',
+            toDate: record.fields['Details_Đến ngày'] || '',
+            fromDateFormatted: formatDate(record.fields['Details_Từ ngày'] || ''),
+            toDateFormatted: formatDate(record.fields['Details_Đến ngày'] || ''),
+            position: record.fields['Details_Vị trí'] || '',
             approvalStatus: record.fields['Status'] || ''
         }));
     }

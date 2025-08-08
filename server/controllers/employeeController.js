@@ -5,7 +5,14 @@ import CacheService from '../services/core/cache-service.js';
 class EmployeeController {
 
 
-    /* ======================= REGION: Quản lý danh sách nhân viên ======================= */
+
+    /* =================================================================================== */
+    /* ======================= API Chính - Quản lý Nhân viên ======================= */
+    /* =================================================================================== */
+
+
+
+    /* ======================= Quản lý danh sách nhân viên ======================= */
     /**
      * GET: Lấy danh sách tất cả nhân viên trong hệ thống.
      * - Trả về array chứa thông tin cơ bản của tất cả nhân viên.
@@ -14,7 +21,6 @@ class EmployeeController {
      */
     async getAllEmployees(req, res) {
         try {
-            console.log('CONTROLLER: Yêu cầu lấy danh sách nhân viên...');
             const employeeService = larkServiceManager.getService('employee');
             const employees = await employeeService.getAllEmployees();
 
@@ -30,7 +36,29 @@ class EmployeeController {
         }
     }
 
-    /* ======================= REGION: Thêm nhân viên mới ======================= */
+
+    /**
+     * GET: Tìm kiếm nhân viên dựa trên một chuỗi truy vấn.
+     * @route GET /api/employees/search
+     */
+    async searchEmployees(req, res) {
+        try {
+            const { q } = req.query;
+            const employees = await larkServiceManager.searchEmployees(q);
+            res.json(formatResponse(true, 'Tìm kiếm thành công', employees));
+        } catch (error) {
+            console.error('❌ Controller: searchEmployees failed:', error);
+            res.status(500).json(formatResponse(
+                false, 
+                `Lỗi khi tìm kiếm nhân viên: ${error.message}`, 
+                null, 
+                'EMPLOYEE_SEARCH_FAILED'
+            ));
+        }
+    }
+
+
+    /* =======================  Thêm nhân viên mới ======================= */
     /**
      * POST: Thêm nhân viên mới kèm theo work history.
      * - Tự động generate employeeId từ tên + SĐT.
@@ -153,52 +181,6 @@ class EmployeeController {
     }
 
 
-
-    /**
-     * UTILITY: Rollback khi tạo nhân viên thất bại.
-     * - Xóa các work history records đã tạo thành công.
-     * - Xóa employee record nếu đã tạo.
-     * - Đảm bảo data consistency khi có lỗi xảy ra.
-     */
-    async rollbackEmployeeCreation(employee, createdWorkHistories) {
-        console.log('🔄 ROLLBACK: Starting cleanup...');
-        
-        try {
-            // Xóa work histories đã tạo
-            for (const workHistory of createdWorkHistories) {
-                if (workHistory && workHistory.larkResponse && workHistory.larkResponse.data) {
-                    try {
-                        await larkServiceManager.getService('workHistory').deleteWorkHistory(
-                            workHistory.larkResponse.data.record.record_id
-                        );
-                        console.log('✅ ROLLBACK: Deleted work history', workHistory.larkResponse.data.record.record_id);
-                    } catch (whDeleteError) {
-                        console.error('❌ ROLLBACK: Failed to delete work history', whDeleteError);
-                    }
-                }
-            }
-            
-            // Xóa employee
-            if (employee && employee.larkResponse && employee.larkResponse.data) {
-                try {
-                    await larkServiceManager.getService('employee').deleteEmployee(
-                        employee.larkResponse.data.record_id
-                    );
-                    console.log('✅ ROLLBACK: Deleted employee', employee.larkResponse.data.record_id);
-                } catch (empDeleteError) {
-                    console.error('❌ ROLLBACK: Failed to delete employee', empDeleteError);
-                }
-            }
-            
-            console.log('✅ ROLLBACK: Cleanup completed');
-        } catch (rollbackError) {
-            console.error('❌ ROLLBACK: Critical error during cleanup:', rollbackError);
-        }
-    }
-
-
-
-
     /* ======================= REGION: Cập nhật thông tin nhân viên ======================= */
     /**
      * PUT: Cập nhật thông tin nhân viên.
@@ -269,69 +251,6 @@ class EmployeeController {
                 null, 
                 'EMPLOYEE_UPDATE_FAILED'
             ));
-        }
-    }
-
-
-
-    /**
-     * UTILITY: Cập nhật employeeId trong các work history records.
-     * - Được gọi khi employeeId thay đổi sau khi update employee.
-     * - Tìm tất cả work history của employee cũ và cập nhật sang ID mới.
-     * - Log kết quả nhưng không fail nếu một số records update lỗi.
-     */
-
-    async updateWorkHistoryEmployeeId(oldEmployeeId, newEmployeeId) {
-        try {
-            console.log(`🔄 Updating work history: ${oldEmployeeId} -> ${newEmployeeId}`);
-            
-            const workHistoryService = larkServiceManager.getService('workHistory');
-            
-            // Lấy tất cả work history của employee cũ
-            const workHistories = await workHistoryService.getWorkHistoryByEmployee(oldEmployeeId);
-            
-            if (workHistories.length === 0) {
-                console.log('ℹ️ No work history records to update');
-                return;
-            }
-            
-            console.log(`📋 Found ${workHistories.length} work history records to update`);
-            
-            // Cập nhật từng record
-            const updatePromises = workHistories.map(async (workHistory) => {
-                try {
-                    await workHistoryService.updateWorkHistory(workHistory.id, {
-                        employeeId: newEmployeeId,
-                        requestNo: workHistory.requestNo,
-                        fromDate: workHistory.fromDate,
-                        toDate: workHistory.toDate,
-                        hourlyRate: workHistory.hourlyRate
-                    });
-                    
-                    console.log(`✅ Updated work history record: ${workHistory.id}`);
-                    return { success: true, id: workHistory.id };
-                } catch (updateError) {
-                    console.error(`❌ Failed to update work history ${workHistory.id}:`, updateError);
-                    return { success: false, id: workHistory.id, error: updateError.message };
-                }
-            });
-            
-            const results = await Promise.all(updatePromises);
-            
-            const successCount = results.filter(r => r.success).length;
-            const failedCount = results.length - successCount;
-            
-            console.log(`📊 Work history update results: ${successCount} success, ${failedCount} failed`);
-            
-            if (failedCount > 0) {
-                const failedIds = results.filter(r => !r.success).map(r => r.id);
-                console.warn('⚠️ Some work history records failed to update:', failedIds);
-                // Có thể log warning nhưng không throw error để không làm fail employee update
-            }
-            
-        } catch (error) {
-            console.error('❌ Critical error updating work history employee IDs:', error);
-            // Log error nhưng không throw để không làm fail employee update
         }
     }
 
@@ -424,29 +343,12 @@ class EmployeeController {
     }
 
 
+    /* ======================================================================================== */
+    /* ======================= REGION: API Chính - Quản lý Lịch sử công việc ======================= */
+    /* ======================================================================================== */
 
-    /**
-     * Search employees
-     * @route GET /api/employees/search
-     */
-    async searchEmployees(req, res) {
-        try {
-            const { q } = req.query;
-            const employees = await larkServiceManager.searchEmployees(q);
-            res.json(formatResponse(true, 'Tìm kiếm thành công', employees));
-        } catch (error) {
-            console.error('❌ Controller: searchEmployees failed:', error);
-            res.status(500).json(formatResponse(
-                false, 
-                `Lỗi khi tìm kiếm nhân viên: ${error.message}`, 
-                null, 
-                'EMPLOYEE_SEARCH_FAILED'
-            ));
-        }
-    }
 
-    /**
-     * Get employee work history
+    /** Get employee work history
      * @route GET /api/employees/:employeeId/work-history
      */
     async getEmployeeWorkHistory(req, res) {
@@ -465,8 +367,8 @@ class EmployeeController {
         }
     }
 
-    /**
-     * Add work history for employee
+
+    /** Add work history for employee
      * @route POST /api/employees/work-history
      */
     async addWorkHistory(req, res) {
@@ -490,9 +392,9 @@ class EmployeeController {
             const workHistory = await larkServiceManager.addWorkHistory({
                 employeeId,
                 requestNo,
-                fromDate,      // ✅ THÊM
-                toDate,        // ✅ THÊM
-                hourlyRate     // ✅ THÊM
+                fromDate,
+                toDate,
+                hourlyRate
             });
             
             res.json(formatResponse(true, 'Thêm work history thành công', { workHistory }));
@@ -538,7 +440,8 @@ class EmployeeController {
         }
     }
 
-    // ✅ THÊM MỚI: Update work history
+
+    // Update work history
     /**
      * Update work history entry
      * @route PUT /api/employees/work-history/:id
@@ -613,7 +516,8 @@ class EmployeeController {
         }
     }
 
-    // ✅ THÊM MỚI: Delete work history
+
+    // Delete work history
     /**
      * Delete work history entry
      * @route DELETE /api/employees/work-history/:id
@@ -641,7 +545,123 @@ class EmployeeController {
             ));
         }
     }
+
+
+    /* =========================================================================== */
+    /* ======================= REGION: Hàm phụ trợ (Utilities) ======================= */
+    /* =========================================================================== */
+
+
+    /**
+     * UTILITY: Rollback khi tạo nhân viên thất bại.
+     * - Xóa các work history records đã tạo thành công.
+     * - Xóa employee record nếu đã tạo.
+     * - Đảm bảo data consistency khi có lỗi xảy ra.
+     */
+    async rollbackEmployeeCreation(employee, createdWorkHistories) {
+        console.log('🔄 ROLLBACK: Starting cleanup...');
+        
+        try {
+            // Xóa work histories đã tạo
+            for (const workHistory of createdWorkHistories) {
+                if (workHistory && workHistory.larkResponse && workHistory.larkResponse.data) {
+                    try {
+                        await larkServiceManager.getService('workHistory').deleteWorkHistory(
+                            workHistory.larkResponse.data.record.record_id
+                        );
+                        console.log('✅ ROLLBACK: Deleted work history', workHistory.larkResponse.data.record.record_id);
+                    } catch (whDeleteError) {
+                        console.error('❌ ROLLBACK: Failed to delete work history', whDeleteError);
+                    }
+                }
+            }
+            
+            // Xóa employee
+            if (employee && employee.larkResponse && employee.larkResponse.data) {
+                try {
+                    await larkServiceManager.getService('employee').deleteEmployee(
+                        employee.larkResponse.data.record_id
+                    );
+                    console.log('✅ ROLLBACK: Deleted employee', employee.larkResponse.data.record_id);
+                } catch (empDeleteError) {
+                    console.error('❌ ROLLBACK: Failed to delete employee', empDeleteError);
+                }
+            }
+            
+            console.log('✅ ROLLBACK: Cleanup completed');
+        } catch (rollbackError) {
+            console.error('❌ ROLLBACK: Critical error during cleanup:', rollbackError);
+        }
+    }
+
+
+    /** UTILITY: Cập nhật employeeId trong các work history records.
+     * - Được gọi khi employeeId thay đổi sau khi update employee.
+     * - Tìm tất cả work history của employee cũ và cập nhật sang ID mới.
+     * - Log kết quả nhưng không fail nếu một số records update lỗi.
+     */
+
+    async updateWorkHistoryEmployeeId(oldEmployeeId, newEmployeeId) {
+        try {
+            console.log(`🔄 Updating work history: ${oldEmployeeId} -> ${newEmployeeId}`);
+            
+            const workHistoryService = larkServiceManager.getService('workHistory');
+            
+            // Lấy tất cả work history của employee cũ
+            const workHistories = await workHistoryService.getWorkHistoryByEmployee(oldEmployeeId);
+            
+            if (workHistories.length === 0) {
+                console.log('ℹ️ No work history records to update');
+                return;
+            }
+            
+            console.log(`📋 Found ${workHistories.length} work history records to update`);
+            
+            // Cập nhật từng record
+            const updatePromises = workHistories.map(async (workHistory) => {
+                try {
+                    await workHistoryService.updateWorkHistory(workHistory.id, {
+                        employeeId: newEmployeeId,
+                        requestNo: workHistory.requestNo,
+                        fromDate: workHistory.fromDate,
+                        toDate: workHistory.toDate,
+                        hourlyRate: workHistory.hourlyRate
+                    });
+                    
+                    console.log(`✅ Updated work history record: ${workHistory.id}`);
+                    return { success: true, id: workHistory.id };
+                } catch (updateError) {
+                    console.error(`❌ Failed to update work history ${workHistory.id}:`, updateError);
+                    return { success: false, id: workHistory.id, error: updateError.message };
+                }
+            });
+            
+            const results = await Promise.all(updatePromises);
+            
+            const successCount = results.filter(r => r.success).length;
+            const failedCount = results.length - successCount;
+            
+            console.log(`📊 Work history update results: ${successCount} success, ${failedCount} failed`);
+            
+            if (failedCount > 0) {
+                const failedIds = results.filter(r => !r.success).map(r => r.id);
+                console.warn('⚠️ Some work history records failed to update:', failedIds);
+                // Có thể log warning nhưng không throw error để không làm fail employee update
+            }
+            
+        } catch (error) {
+            console.error('❌ Critical error updating work history employee IDs:', error);
+            // Log error nhưng không throw để không làm fail employee update
+        }
+    }
+
 }
+
+
+/* ======================================================================== */
+/* ======================= REGION: Khởi tạo và Export ======================= */
+/* ======================================================================== */
+
 
 // Export instance methods
 const employeeController = new EmployeeController();

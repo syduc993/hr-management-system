@@ -19,40 +19,25 @@ class LarkClient {
     }
 
     async getTenantAccessToken() {
-        console.log('🔑 Getting tenant access token...');
         
         if (!this.appId || !this.appSecret) {
             throw new Error('Lark credentials not configured properly');
         }
         
         if (this.tenantAccessToken && this.tokenExpiry > Date.now()) {
-            console.log('✅ Using cached access token');
             return this.tenantAccessToken;
         }
 
         try {
-            console.log('📡 Requesting new access token from Lark...');
             const payload = {
                 app_id: this.appId,
                 app_secret: this.appSecret
             };
-            
-            console.log('🚀 Sending request to:', `${this.baseURL}/auth/v3/tenant_access_token/internal`);
-            console.log('📦 Payload keys:', Object.keys(payload));
-            
             const response = await axios.post(`${this.baseURL}/auth/v3/tenant_access_token/internal`, payload);
-            
-            console.log('📨 Lark auth response:', {
-                status: response.status,
-                code: response.data.code,
-                msg: response.data.msg
-            });
 
             if (response.data.code === 0) {
                 this.tenantAccessToken = response.data.tenant_access_token;
                 this.tokenExpiry = Date.now() + (response.data.expire - 300) * 1000;
-                console.log('✅ Access token obtained successfully');
-                console.log('Token expires in:', Math.floor((this.tokenExpiry - Date.now()) / 1000), 'seconds');
                 return this.tenantAccessToken;
             } else {
                 console.error('❌ Lark auth error:', response.data);
@@ -69,7 +54,6 @@ class LarkClient {
     }
 
     async request(endpoint, options = {}) {
-        console.log(`📞 Making Lark API request: ${options.method || 'GET'} ${endpoint}`);
         
         const token = await this.getTenantAccessToken();
         
@@ -83,13 +67,7 @@ class LarkClient {
         };
 
         try {
-            console.log('🔄 Sending request to:', `${this.baseURL}${endpoint}`);
             const response = await axios(`${this.baseURL}${endpoint}`, config);
-            
-            console.log('✅ Lark API response:', {
-                status: response.status,
-                dataLength: response.data ? JSON.stringify(response.data).length : 0
-            });
             
             return response.data;
         } catch (error) {
@@ -104,7 +82,6 @@ class LarkClient {
     }
     
     async get(endpoint, params = {}) {
-        console.log('📥 GET request:', endpoint, params);
         
         // ✅ SỬA: Đổi tên biến để tránh conflict
         const queryParams = params;
@@ -119,7 +96,6 @@ class LarkClient {
     // ✅ PHƯƠNG THỨC MỚI ĐỂ LẤY TOÀN BỘ DỮ LIỆU (CÓ PAGINATION)
     // ✅ ================================================================
     async getAllRecords(endpoint, pageSize = 100, filterParams = {}) {
-        console.log(`📚 Getting ALL records from: ${endpoint}`);
         
         let allRecords = [];
         let hasMore = true;
@@ -128,7 +104,6 @@ class LarkClient {
         
         while (hasMore) {
             pageCount++;
-            console.log(`📄 Fetching page ${pageCount}...`);
             
             const params = {
                 page_size: pageSize
@@ -149,7 +124,6 @@ class LarkClient {
             
             if (response.data?.items) {
                 allRecords = [...allRecords, ...response.data.items];
-                console.log(`✅ Page ${pageCount}: ${response.data.items.length} records (Total: ${allRecords.length})`);
             }
             
             // Kiểm tra có trang tiếp theo không
@@ -163,7 +137,6 @@ class LarkClient {
             }
         }
         
-        console.log(`🎉 COMPLETED: Retrieved ${allRecords.length} total records in ${pageCount} pages`);
         
         // Trả về dữ liệu theo cấu trúc chuẩn {data: {items, total}}
         return {

@@ -135,64 +135,118 @@ const AttendanceLogsPage = () => {
     }
   };
 
+  // Thay thế hoàn toàn hàm exportToExcel cũ bằng hàm này
+
   const exportToExcel = async (request) => {
       try {
           setLoadingRecruitment(true);
-          showNotification('Đang tải chi tiết dữ liệu...', 'info');
+          showNotification('Đang chuẩn bị báo cáo...', 'info');
+
+          // ==================================================================
+          // PHẦN 1: LẤY DỮ LIỆU CHI TIẾT (GIỮ NGUYÊN)
+          // ==================================================================
+          const detailResponse = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
+          const detailedRecords = Array.isArray(detailResponse?.data?.records) ? detailResponse.data.records : [];
           
-          const response = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
-          
-          if (!response.success || !response.data.records.length) {
-              showNotification('Không có dữ liệu chi tiết để xuất', 'warning');
+          if (!detailResponse?.success) {
+              showNotification('Không thể tải dữ liệu chi tiết.', 'warning');
+              setLoadingRecruitment(false);
               return;
           }
-          
-          const detailedRecords = response.data.records;
-          
-          // ✅ SỬA: Áp dụng conversion cho các trường thời gian
-          const worksheetData = [
+
+          const totalSalary = detailedRecords.reduce((sum, record) => sum + (record?.totalSalary || 0), 0);
+          const sheet1Data = [
+              ['BẢNG CHI TIẾT CHẤM CÔNG'],
+              [],
+              ['Request No:', request?.requestNo || 'N/A'],
+              ['Phòng ban:', request?.department || 'N/A'],
+              ['Thời gian kế hoạch:', `${request?.fromDate || 'N/A'} - ${request?.toDate || 'N/A'}`],
+              ['Tổng bản ghi chấm công:', detailedRecords.length],
+              ['Tổng lương:', `${totalSalary.toLocaleString('vi-VN')} VNĐ`],
+              ['Trạng thái:', request?.status || 'N/A'],
+              [],
+              ['CHI TIẾT THEO NGÀY'],
               ['STT', 'Mã nhân viên', 'Ngày chấm công', 'Thời gian vào', 'Thời gian ra', 'Tổng giờ làm', 'Lương/giờ (VNĐ)', 'Tổng lương (VNĐ)'],
               ...detailedRecords.map((record, index) => [
                   index + 1,
-                  record.employeeId || 'N/A',
-                  // ✅ CHUYỂN ĐỔI: workDate nếu là serial number
-                  typeof record.workDate === 'number' ? 
-                      formatDateTimeForCSV(record.workDate) : 
-                      record.workDate || 'N/A',
-                  // ✅ CHUYỂN ĐỔI: checkInTime nếu là serial number
-                  typeof record.checkInTime === 'number' ? 
-                      formatTimeForCSV(record.checkInTime) : 
-                      record.checkInTime || 'N/A',
-                  // ✅ CHUYỂN ĐỔI: checkOutTime nếu là serial number
-                  typeof record.checkOutTime === 'number' ? 
-                      formatTimeForCSV(record.checkOutTime) : 
-                      record.checkOutTime || 'N/A',
-                  record.totalHours || 0,
-                  record.hourlyRate || 0,
-                  record.totalSalary || 0 
+                  record?.employeeId || 'N/A',
+                  typeof record?.workDate === 'number'
+                      ? formatDateTimeForCSV(record.workDate)
+                      : (record?.workDate || 'N/A'),
+                  typeof record?.checkInTime === 'number'
+                      ? formatTimeForCSV(record.checkInTime)
+                      : (record?.checkInTime || 'N/A'),
+                  typeof record?.checkOutTime === 'number'
+                      ? formatTimeForCSV(record.checkOutTime)
+                      : (record?.checkOutTime || 'N/A'),
+                  record?.totalHours || 0,
+                  record?.hourlyRate || 0,
+                  record?.totalSalary || 0,
               ])
           ];
 
-          // Phần còn lại giữ nguyên
-          const totalSalary = detailedRecords.reduce((sum, record) => sum + (record.totalSalary || 0), 0);
-          
-          const summaryData = [
-              [],
-              ['THÔNG TIN TỔNG HỢP'],
-              ['Request No:', request.requestNo],
-              ['Phòng ban:', request.department],
-              ['Thời gian:', `${request.fromDate || 'N/A'} - ${request.toDate || 'N/A'}`],
-              ['Tổng bản ghi:', detailedRecords.length],
-              ['Tổng lương:', `${totalSalary.toLocaleString('vi-VN')} VNĐ`],
-              ['Trạng thái:', request.status],
-              [],
-              ['CHI TIẾT CHẤM CÔNG THEO NGÀY'],
-              ...worksheetData
+          // ==================================================================
+          // PHẦN 2: LẤY VÀ XỬ LÝ DỮ LIỆU SO SÁNH (ĐÃ CHỈNH SỬA)
+          // ==================================================================
+          const comparisonResponse = await ApiClient.get(`/api/recruitment/daily-comparison/${request.requestNo}`);
+          const comparisonData = Array.isArray(comparisonResponse?.data?.dailyComparison) ? comparisonResponse.data.dailyComparison : [];
+
+          // ✅ SỬA: Headers mới đã được rút gọn
+          const comparisonHeaders = [
+              'Ngày', 
+              'Thứ', 
+              'Số người được phê duyệt', 
+              'Số người thực tế chấm công', 
+              'Chênh lệch (Thực tế - Phê duyệt)', 
+              'Tỷ lệ thực hiện (%)'
           ];
 
-          const csvContent = summaryData.map(row => 
+          // ✅ SỬA: Tạo các dòng dữ liệu phù hợp với headers mới
+          const comparisonRows = (comparisonData || []).map(day => {
+              const approvedCount = day?.approvedCount ?? 0;
+              const actualCount = day?.actualCount ?? 0;
+              const variance = day?.variance ?? (actualCount - approvedCount);
+              // Sử dụng toFixed(1) để làm tròn đến 1 chữ số thập phân
+              const utilizationRate = `${(parseFloat(day?.utilizationRate || 0)).toFixed(1)}%`;
+
+              return [
+                  day?.date || 'N/A',
+                  day?.dayName || '',
+                  approvedCount,
+                  actualCount,
+                  variance,
+                  utilizationRate
+              ];
+          });
+          
+          // ✅ SỬA: Loại bỏ hoàn toàn phần "THỐNG KÊ TỔNG QUAN" và các tính toán liên quan
+          const sheet2Data = [
+              ['BẢNG SO SÁNH KẾ HOẠCH VS THỰC TẾ'],
+              [],
+              ['Request No:', request?.requestNo || 'N/A'],
+              ['Phòng ban:', request?.department || 'N/A'],
+              ['Thời gian:', `${request?.fromDate || 'N/A'} - ${request?.toDate || 'N/A'}`],
+              [],
+              ['CHI TIẾT THEO NGÀY'],
+              comparisonHeaders,
+              ...comparisonRows
+          ];
+
+          // ==================================================================
+          // PHẦN 3: TẠO FILE CSV (GIỮ NGUYÊN)
+          // ==================================================================
+          const separatorLine = Array(80).fill('=').join('');
+          const combinedData = [
+              ...sheet1Data,
+              [], [],
+              [separatorLine],
+              [], [],
+              ...sheet2Data
+          ];
+
+          const csvContent = combinedData.map(row =>
               row.map(cell => {
-                  const cellStr = String(cell || '');
+                  const cellStr = String(cell ?? '');
                   if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
                       return `"${cellStr.replace(/"/g, '""')}"`;
                   }
@@ -201,28 +255,116 @@ const AttendanceLogsPage = () => {
           ).join('\n');
 
           const BOM = '\uFEFF';
-          const blob = new Blob([BOM + csvContent], { 
-              type: 'text/csv;charset=utf-8;' 
-          });
-
+          const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
           const link = document.createElement('a');
           link.href = URL.createObjectURL(blob);
-          link.download = `chi_tiet_cham_cong_${request.requestNo}_${new Date().toISOString().split('T')[0]}.csv`;
-          
+          link.download = `bao_cao_chi_tiet_${request?.requestNo || 'unknown'}_${new Date().toISOString().split('T')[0]}.csv`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
           URL.revokeObjectURL(link.href);
-          
-          showNotification(`Đã xuất file chi tiết cho ${request.requestNo}`, 'success');
-          
+
+          showNotification(`Đã xuất báo cáo chi tiết cho ${request?.requestNo}`, 'success');
+
       } catch (error) {
-          console.error('Error exporting detailed Excel:', error);
-          showNotification('Lỗi khi xuất file Excel chi tiết', 'error');
+          console.error('Lỗi khi xuất báo cáo chi tiết:', error);
+          showNotification('Lỗi khi xuất báo cáo chi tiết', 'error');
       } finally {
           setLoadingRecruitment(false);
       }
   };
+
+
+
+
+  // const exportToExcel = async (request) => {
+  //     try {
+  //         setLoadingRecruitment(true);
+  //         showNotification('Đang tải chi tiết dữ liệu...', 'info');
+          
+  //         const response = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
+          
+  //         if (!response.success || !response.data.records.length) {
+  //             showNotification('Không có dữ liệu chi tiết để xuất', 'warning');
+  //             return;
+  //         }
+          
+  //         const detailedRecords = response.data.records;
+          
+  //         // ✅ SỬA: Áp dụng conversion cho các trường thời gian
+  //         const worksheetData = [
+  //             ['STT', 'Mã nhân viên', 'Ngày chấm công', 'Thời gian vào', 'Thời gian ra', 'Tổng giờ làm', 'Lương/giờ (VNĐ)', 'Tổng lương (VNĐ)'],
+  //             ...detailedRecords.map((record, index) => [
+  //                 index + 1,
+  //                 record.employeeId || 'N/A',
+  //                 // ✅ CHUYỂN ĐỔI: workDate nếu là serial number
+  //                 typeof record.workDate === 'number' ? 
+  //                     formatDateTimeForCSV(record.workDate) : 
+  //                     record.workDate || 'N/A',
+  //                 // ✅ CHUYỂN ĐỔI: checkInTime nếu là serial number
+  //                 typeof record.checkInTime === 'number' ? 
+  //                     formatTimeForCSV(record.checkInTime) : 
+  //                     record.checkInTime || 'N/A',
+  //                 // ✅ CHUYỂN ĐỔI: checkOutTime nếu là serial number
+  //                 typeof record.checkOutTime === 'number' ? 
+  //                     formatTimeForCSV(record.checkOutTime) : 
+  //                     record.checkOutTime || 'N/A',
+  //                 record.totalHours || 0,
+  //                 record.hourlyRate || 0,
+  //                 record.totalSalary || 0 
+  //             ])
+  //         ];
+
+  //         // Phần còn lại giữ nguyên
+  //         const totalSalary = detailedRecords.reduce((sum, record) => sum + (record.totalSalary || 0), 0);
+          
+  //         const summaryData = [
+  //             [],
+  //             ['THÔNG TIN TỔNG HỢP'],
+  //             ['Request No:', request.requestNo],
+  //             ['Phòng ban:', request.department],
+  //             ['Thời gian:', `${request.fromDate || 'N/A'} - ${request.toDate || 'N/A'}`],
+  //             ['Tổng bản ghi:', detailedRecords.length],
+  //             ['Tổng lương:', `${totalSalary.toLocaleString('vi-VN')} VNĐ`],
+  //             ['Trạng thái:', request.status],
+  //             [],
+  //             ['CHI TIẾT CHẤM CÔNG THEO NGÀY'],
+  //             ...worksheetData
+  //         ];
+
+  //         const csvContent = summaryData.map(row => 
+  //             row.map(cell => {
+  //                 const cellStr = String(cell || '');
+  //                 if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+  //                     return `"${cellStr.replace(/"/g, '""')}"`;
+  //                 }
+  //                 return cellStr;
+  //             }).join(',')
+  //         ).join('\n');
+
+  //         const BOM = '\uFEFF';
+  //         const blob = new Blob([BOM + csvContent], { 
+  //             type: 'text/csv;charset=utf-8;' 
+  //         });
+
+  //         const link = document.createElement('a');
+  //         link.href = URL.createObjectURL(blob);
+  //         link.download = `chi_tiet_cham_cong_${request.requestNo}_${new Date().toISOString().split('T')[0]}.csv`;
+          
+  //         document.body.appendChild(link);
+  //         link.click();
+  //         document.body.removeChild(link);
+  //         URL.revokeObjectURL(link.href);
+          
+  //         showNotification(`Đã xuất file chi tiết cho ${request.requestNo}`, 'success');
+          
+  //     } catch (error) {
+  //         console.error('Error exporting detailed Excel:', error);
+  //         showNotification('Lỗi khi xuất file Excel chi tiết', 'error');
+  //     } finally {
+  //         setLoadingRecruitment(false);
+  //     }
+  // };
 
 
   const totalEmployees = Array.isArray(employees) ? employees.length : 0;

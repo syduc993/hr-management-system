@@ -4,6 +4,12 @@ import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
 import WorkHistoryService from './work-history-service.js';
 
+
+/**
+ * @class EmployeeService
+ * @description Quản lý các nghiệp vụ liên quan đến thông tin nhân viên,
+ * bao gồm CRUD (tạo, đọc, cập nhật, xóa) và các chức năng tìm kiếm, kiểm tra.
+ */
 class EmployeeService extends BaseService {
     constructor() {
         super();
@@ -19,8 +25,36 @@ class EmployeeService extends BaseService {
         await this.workHistoryService.initializeService();
     }
 
+    // =================================================================
+    //  PUBLIC API METHODS - CÁC HÀM CUNG CẤP RA BÊN NGOÀI
+    // =================================================================
 
 
+    /**
+     * Lấy toàn bộ danh sách nhân viên từ Lark, có hỗ trợ cache.
+     * @returns {Promise<Array<object>>} - Mảng các đối tượng nhân viên.
+     */
+    async getAllEmployees() {
+        try {
+
+            const response = await LarkClient.getAllRecords(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
+            );
+
+            let employees = this.transformEmployeeData(response.data?.items || []);
+            return employees;
+        } catch (error) {
+            console.error('❌ EMPLOYEE: Error fetching employees from Lark:', error.message);
+            throw error;
+        }
+    }
+
+
+    /**
+     * Lấy thông tin một nhân viên bằng record_id của Lark, có hỗ trợ cache.
+     * @param {string} id - Record ID của nhân viên trong Lark.
+     * @returns {Promise<object|null>} - Đối tượng nhân viên hoặc null nếu không tìm thấy.
+     */
     async getEmployeeById(id) {
         try {
             console.log(`🔍 Getting employee by ID: ${id}`);
@@ -45,29 +79,29 @@ class EmployeeService extends BaseService {
     }
 
 
-    async getAllEmployees() {
-        try {
-            console.log('📡 EMPLOYEE: Fetching all employees from Lark API (Cache is disabled)...');
+    /**
+     * Tìm kiếm nhân viên dựa trên họ tên, mã nhân viên, hoặc số điện thoại.
+     * @param {string} query - Chuỗi tìm kiếm.
+     * @returns {Promise<Array<object>>} - Mảng các nhân viên phù hợp.
+     */
+    async searchEmployees(query) {
+        const employees = await this.getAllEmployees();
 
-            const response = await LarkClient.getAllRecords(
-                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
-            );
+        if (!query) return employees;
 
-            let employees = this.transformEmployeeData(response.data?.items || []);
-            console.log(`✅ EMPLOYEE: Transformed ${employees.length} employees from employee table.`);
-
-            console.log(`✅ EMPLOYEE: Completed supplementing data for ${employees.length} employees.`);
-            return employees;
-        } catch (error) {
-            console.error('❌ EMPLOYEE: Error fetching employees from Lark:', error.message);
-            throw error;
-        }
+        const searchTerm = query.toLowerCase();
+        return employees.filter(emp =>
+            emp.fullName.toLowerCase().includes(searchTerm) ||
+            emp.employeeId.toLowerCase().includes(searchTerm) ||
+            emp.phoneNumber.includes(searchTerm)
+        );
     }
 
-    generateEmployeeId(fullName, phoneNumber) {
-        return `${fullName} - ${phoneNumber}`;
-    }
-
+    /**
+     * Thêm một nhân viên mới vào Lark Bitable.
+     * @param {object} employeeData - Dữ liệu nhân viên cần thêm.
+     * @returns {Promise<object>} - Kết quả của việc thêm.
+     */
     async addEmployee(employeeData) {
         try {
             const transformedData = this.transformEmployeeForLark(employeeData);
@@ -92,6 +126,13 @@ class EmployeeService extends BaseService {
         }
     }
 
+
+    /**
+     * Cập nhật thông tin một nhân viên.
+     * @param {string} id - Record ID của nhân viên trong Lark.
+     * @param {object} employeeData - Dữ liệu cần cập nhật.
+     * @returns {Promise<object>} - Thông tin nhân viên sau khi cập nhật.
+     */
     async updateEmployee(id, employeeData) {
         try {
             const transformedData = this.transformEmployeeForLark(employeeData);
@@ -110,6 +151,12 @@ class EmployeeService extends BaseService {
         }
     }
 
+    
+    /**
+     * Xóa một nhân viên khỏi Lark.
+     * @param {string} id - Record ID của nhân viên trong Lark.
+     * @returns {Promise<boolean>} - True nếu xóa thành công.
+     */
     async deleteEmployee(id) {
         try {
             await LarkClient.delete(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`);
@@ -124,6 +171,13 @@ class EmployeeService extends BaseService {
         }
     }
 
+
+    /**
+     * Kiểm tra xem một mã nhân viên đã tồn tại hay chưa.
+     * Tối ưu bằng cách sử dụng filter của Lark API thay vì tải toàn bộ dữ liệu.
+     * @param {string} employeeId - Mã nhân viên cần kiểm tra.
+     * @returns {Promise<boolean>} - True nếu mã đã tồn tại.
+     */
     async checkEmployeeIdExists(employeeId) {
         try {
             console.log(`🔍 EMPLOYEE: Checking for duplicate ID: ${employeeId}`);
@@ -145,19 +199,17 @@ class EmployeeService extends BaseService {
         }
     }
 
-    async searchEmployees(query) {
-        const employees = await this.getAllEmployees();
 
-        if (!query) return employees;
+    // =================================================================
+    //  DATA TRANSFORMATION & UTILITY HELPERS
+    // =================================================================
 
-        const searchTerm = query.toLowerCase();
-        return employees.filter(emp =>
-            emp.fullName.toLowerCase().includes(searchTerm) ||
-            emp.employeeId.toLowerCase().includes(searchTerm) ||
-            emp.phoneNumber.includes(searchTerm)
-        );
-    }
 
+    /**
+     * Chuyển đổi dữ liệu nhân viên thô từ Lark sang định dạng chuẩn của ứng dụng.
+     * @param {Array<object>} larkData - Mảng bản ghi từ Lark.
+     * @returns {Array<object>} - Mảng các đối tượng nhân viên đã được định dạng.
+     */
     transformEmployeeData(larkData) {
 
         if (!Array.isArray(larkData)) {
@@ -187,6 +239,12 @@ class EmployeeService extends BaseService {
         return transformed;
     }
 
+
+    /**
+     * Chuyển đổi dữ liệu nhân viên từ ứng dụng sang định dạng `fields` mà Lark API yêu cầu.
+     * @param {object} employeeData - Dữ liệu nhân viên từ ứng dụng.
+     * @returns {object} - Đối tượng `fields` để gửi cho Lark.
+     */
     transformEmployeeForLark(employeeData) {
         return {
             'Mã nhân viên': employeeData.employeeId,
@@ -200,6 +258,13 @@ class EmployeeService extends BaseService {
             'Trạng thái': employeeData.status || 'active'
         };
     }
+
+
+
+    generateEmployeeId(fullName, phoneNumber) {
+        return `${fullName} - ${phoneNumber}`;
+    }
+
 }
 
 export default EmployeeService;
