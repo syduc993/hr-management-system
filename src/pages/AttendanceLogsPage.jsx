@@ -18,6 +18,12 @@ const AttendanceLogsPage = () => {
   const [activeTab, setActiveTab] = useState('logs');
   const [loadingRecruitment, setLoadingRecruitment] = useState(false);
   const { showNotification } = useNotification();
+  
+  // ==================================================================
+  // BƯỚC 1 (SỬA ĐỔI): Thêm state để quản lý giá trị tìm kiếm
+  // ==================================================================
+  const [searchQuery, setSearchQuery] = useState('');
+
 
   useEffect(() => {
     loadInitialData();
@@ -235,7 +241,6 @@ const AttendanceLogsPage = () => {
               if (yPosition > pageHeight - 100) { doc.addPage(); yPosition = 20; }
               yPosition = drawTableTitle(doc, 'CHI TIẾT CHẤM CÔNG THEO NGÀY', yPosition);
               
-              // ✅ ĐÃ SỬA: Điền lại logic map dữ liệu chi tiết
               const detailTableData = detailedRecords.map((record, index) => [
                   (index + 1).toString(),
                   record?.employeeId || 'N/A',
@@ -270,7 +275,6 @@ const AttendanceLogsPage = () => {
               if (yPosition > pageHeight - 80) { doc.addPage(); yPosition = 20; }
               yPosition = drawTableTitle(doc, 'SO SÁNH KẾ HOẠCH VS THỰC TẾ', yPosition);
                 
-              // ✅ ĐÃ SỬA: Điền lại logic map dữ liệu so sánh
               const comparisonTableData = comparisonData.map(day => [
                   day?.date || 'N/A',
                   day?.dayName || '',
@@ -344,149 +348,21 @@ const AttendanceLogsPage = () => {
   };
 
 
-  const exportToExcel = async (request) => {
-      try {
-          setLoadingRecruitment(true);
-          showNotification('Đang chuẩn bị báo cáo...', 'info');
-
-          // ==================================================================
-          // PHẦN 1: LẤY DỮ LIỆU CHI TIẾT (GIỮ NGUYÊN)
-          // ==================================================================
-          const detailResponse = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
-          const detailedRecords = Array.isArray(detailResponse?.data?.records) ? detailResponse.data.records : [];
-          
-          if (!detailResponse?.success) {
-              showNotification('Không thể tải dữ liệu chi tiết.', 'warning');
-              setLoadingRecruitment(false);
-              return;
-          }
-
-          const totalSalary = detailedRecords.reduce((sum, record) => sum + (record?.totalSalary || 0), 0);
-          const sheet1Data = [
-              ['BẢNG CHI TIẾT CHẤM CÔNG'],
-              [],
-              ['Request No:', request?.requestNo || 'N/A'],
-              ['Phòng ban:', request?.department || 'N/A'],
-              ['Thời gian kế hoạch:', `${request?.fromDate || 'N/A'} - ${request?.toDate || 'N/A'}`],
-              ['Tổng bản ghi chấm công:', detailedRecords.length],
-              ['Tổng lương:', `${totalSalary.toLocaleString('vi-VN')} VNĐ`],
-              ['Trạng thái:', request?.status || 'N/A'],
-              [],
-              ['CHI TIẾT THEO NGÀY'],
-              ['STT', 'Mã nhân viên', 'Ngày chấm công', 'Thời gian vào', 'Thời gian ra', 'Tổng giờ làm', 'Lương/giờ (VNĐ)', 'Tổng lương (VNĐ)'],
-              ...detailedRecords.map((record, index) => [
-                  index + 1,
-                  record?.employeeId || 'N/A',
-                  typeof record?.workDate === 'number'
-                      ? formatDateTimeForCSV(record.workDate)
-                      : (record?.workDate || 'N/A'),
-                  typeof record?.checkInTime === 'number'
-                      ? formatTimeForCSV(record.checkInTime)
-                      : (record?.checkInTime || 'N/A'),
-                  typeof record?.checkOutTime === 'number'
-                      ? formatTimeForCSV(record.checkOutTime)
-                      : (record?.checkOutTime || 'N/A'),
-                  record?.totalHours || 0,
-                  record?.hourlyRate || 0,
-                  record?.totalSalary || 0,
-              ])
-          ];
-
-          // ==================================================================
-          // PHẦN 2: LẤY VÀ XỬ LÝ DỮ LIỆU SO SÁNH (ĐÃ CHỈNH SỬA)
-          // ==================================================================
-          const comparisonResponse = await ApiClient.get(`/api/recruitment/daily-comparison/${request.requestNo}`);
-          const comparisonData = Array.isArray(comparisonResponse?.data?.dailyComparison) ? comparisonResponse.data.dailyComparison : [];
-
-          // ✅ SỬA: Headers mới đã được rút gọn
-          const comparisonHeaders = [
-              'Ngày', 
-              'Thứ', 
-              'Số người được phê duyệt', 
-              'Số người thực tế chấm công', 
-              'Chênh lệch (Thực tế - Phê duyệt)', 
-              'Tỷ lệ thực hiện (%)'
-          ];
-
-          // ✅ SỬA: Tạo các dòng dữ liệu phù hợp với headers mới
-          const comparisonRows = (comparisonData || []).map(day => {
-              const approvedCount = day?.approvedCount ?? 0;
-              const actualCount = day?.actualCount ?? 0;
-              const variance = day?.variance ?? (actualCount - approvedCount);
-              // Sử dụng toFixed(1) để làm tròn đến 1 chữ số thập phân
-              const utilizationRate = `${(parseFloat(day?.utilizationRate || 0)).toFixed(1)}%`;
-
-              return [
-                  day?.date || 'N/A',
-                  day?.dayName || '',
-                  approvedCount,
-                  actualCount,
-                  variance,
-                  utilizationRate
-              ];
-          });
-          
-          // ✅ SỬA: Loại bỏ hoàn toàn phần "THỐNG KÊ TỔNG QUAN" và các tính toán liên quan
-          const sheet2Data = [
-              ['BẢNG SO SÁNH KẾ HOẠCH VS THỰC TẾ'],
-              [],
-              ['Request No:', request?.requestNo || 'N/A'],
-              ['Phòng ban:', request?.department || 'N/A'],
-              ['Thời gian:', `${request?.fromDate || 'N/A'} - ${request?.toDate || 'N/A'}`],
-              [],
-              ['CHI TIẾT THEO NGÀY'],
-              comparisonHeaders,
-              ...comparisonRows
-          ];
-
-          // ==================================================================
-          // PHẦN 3: TẠO FILE CSV (GIỮ NGUYÊN)
-          // ==================================================================
-          const separatorLine = Array(80).fill('=').join('');
-          const combinedData = [
-              ...sheet1Data,
-              [], [],
-              [separatorLine],
-              [], [],
-              ...sheet2Data
-          ];
-
-          const csvContent = combinedData.map(row =>
-              row.map(cell => {
-                  const cellStr = String(cell ?? '');
-                  if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-                      return `"${cellStr.replace(/"/g, '""')}"`;
-                  }
-                  return cellStr;
-              }).join(',')
-          ).join('\n');
-
-          const BOM = '\uFEFF';
-          const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(blob);
-          link.download = `bao_cao_chi_tiet_${request?.requestNo || 'unknown'}_${new Date().toISOString().split('T')[0]}.csv`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(link.href);
-
-          showNotification(`Đã xuất báo cáo chi tiết cho ${request?.requestNo}`, 'success');
-
-      } catch (error) {
-          console.error('Lỗi khi xuất báo cáo chi tiết:', error);
-          showNotification('Lỗi khi xuất báo cáo chi tiết', 'error');
-      } finally {
-          setLoadingRecruitment(false);
-      }
-  };
-
-
   const totalEmployees = Array.isArray(employees) ? employees.length : 0;
   const totalStores = Array.isArray(stores) ? stores.length : 0;
   const activeRecruitmentRequests = Array.isArray(recruitmentRequests)
     ? recruitmentRequests.filter(req => req.status === 'Đang tuyển dụng').length
     : 0;
+  
+  // ==================================================================
+  // BƯỚC 2 (SỬA ĐỔI): Lọc danh sách hiển thị dựa trên searchQuery
+  // ==================================================================
+  const filteredRecruitmentHours = Array.isArray(recruitmentHours)
+    ? recruitmentHours.filter(req => 
+        req.requestNo?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
+
 
   if (loading) {
     return <Loading fullScreen text="Đang tải dữ liệu..." />;
@@ -656,14 +532,27 @@ const AttendanceLogsPage = () => {
                     )}
                   </small>
                 </div>
-                <button
-                  className="btn btn-sm btn-outline-primary"
-                  onClick={() => loadRecruitmentHours(true)}
-                  disabled={loadingRecruitment}
-                >
-                  <i className={`fas fa-sync ${loadingRecruitment ? 'fa-spin' : ''} me-1`}></i>
-                  Làm mới ngay
-                </button>
+                {/* ================================================================== */}
+                {/* BƯỚC 3 (SỬA ĐỔI): Thêm ô input tìm kiếm và điều chỉnh layout */}
+                {/* ================================================================== */}
+                <div className="d-flex align-items-center">
+                  <input
+                    type="text"
+                    className="form-control form-control-sm me-2"
+                    placeholder="Tìm theo Request No..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '200px' }}
+                  />
+                  <button
+                    className="btn btn-sm btn-outline-primary"
+                    onClick={() => loadRecruitmentHours(true)}
+                    disabled={loadingRecruitment}
+                  >
+                    <i className={`fas fa-sync ${loadingRecruitment ? 'fa-spin' : ''} me-1`}></i>
+                    Làm mới ngay
+                  </button>
+                </div>
               </div>
               <div className="card-body">
                 {loadingRecruitment && (
@@ -691,8 +580,11 @@ const AttendanceLogsPage = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {Array.isArray(recruitmentHours) && recruitmentHours.length > 0 ? (
-                          recruitmentHours.map((request, index) => (
+                        {/* ================================================================== */}
+                        {/* BƯỚC 4 (SỬA ĐỔI): Sử dụng `filteredRecruitmentHours` để render */}
+                        {/* ================================================================== */}
+                        {filteredRecruitmentHours.length > 0 ? (
+                          filteredRecruitmentHours.map((request, index) => (
                             <tr key={request.requestNo || index}>
                               <td>
                                 <strong className="text-primary">{request.requestNo || 'N/A'}</strong>
@@ -742,7 +634,7 @@ const AttendanceLogsPage = () => {
                             <td colSpan="8" className="text-center text-muted py-4">
                               <i className="fas fa-inbox fa-2x mb-2"></i>
                               <br />
-                              Chưa có dữ liệu tổng hợp giờ công theo tuyển dụng
+                              {searchQuery ? 'Không tìm thấy yêu cầu phù hợp' : 'Chưa có dữ liệu tổng hợp'}
                             </td>
                           </tr>
                         )}
@@ -751,13 +643,15 @@ const AttendanceLogsPage = () => {
                   </div>
                 )}
 
-                {/* Thống kê tổng quan */}
-                {!loadingRecruitment && recruitmentHours.length > 0 && (
+                {/* ================================================================== */}
+                {/* BƯỚC 5 (SỬA ĐỔI): Cập nhật thống kê tổng quan để dùng `filteredRecruitmentHours` */}
+                {/* ================================================================== */}
+                {!loadingRecruitment && filteredRecruitmentHours.length > 0 && (
                   <div className="row mt-4">
                     <div className="col-md-3">
                       <div className="card text-center bg-light">
                         <div className="card-body">
-                          <h4 className="text-primary">{recruitmentHours.length}</h4>
+                          <h4 className="text-primary">{filteredRecruitmentHours.length}</h4>
                           <p className="mb-0">Tổng số đề xuất</p>
                         </div>
                       </div>
@@ -766,7 +660,7 @@ const AttendanceLogsPage = () => {
                       <div className="card text-center bg-light">
                         <div className="card-body">
                           <h4 className="text-success">
-                            {recruitmentHours.reduce((sum, req) => sum + req.totalEmployees, 0)}
+                            {filteredRecruitmentHours.reduce((sum, req) => sum + req.totalEmployees, 0)}
                           </h4>
                           <p className="mb-0">Tổng nhân viên</p>
                         </div>
@@ -776,7 +670,7 @@ const AttendanceLogsPage = () => {
                       <div className="card text-center bg-light">
                         <div className="card-body">
                           <h4 className="text-warning">
-                            {recruitmentHours.reduce((sum, req) => sum + (req.totalHoursNumeric || 0), 0).toFixed(1)} giờ
+                            {filteredRecruitmentHours.reduce((sum, req) => sum + (req.totalHoursNumeric || 0), 0).toFixed(1)} giờ
                           </h4>
                           <p className="mb-0">Tổng giờ công</p>
                         </div>
@@ -789,7 +683,7 @@ const AttendanceLogsPage = () => {
                             {new Intl.NumberFormat('vi-VN', { 
                               style: 'currency', 
                               currency: 'VND' 
-                            }).format(recruitmentHours.reduce((sum, req) => sum + (req.totalSalaryNumeric || 0), 0))}
+                            }).format(filteredRecruitmentHours.reduce((sum, req) => sum + (req.totalSalaryNumeric || 0), 0))}
                           </h4>
                           <p className="mb-0">Tổng lương</p>
                         </div>
