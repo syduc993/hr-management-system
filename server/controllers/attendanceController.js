@@ -3,7 +3,7 @@ import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
 
 
-/* ======================= REGION: Lấy danh sách bản ghi chấm công ======================= */
+/* ======================= Lấy danh sách bản ghi chấm công ======================= */
 /**
  * GET: Lấy danh sách các bản ghi chấm công (attendance logs) dựa trên filter từ query parameters.
  * - Trả về data bản ghi chấm công dạng list.
@@ -28,7 +28,7 @@ export const getAttendanceLogs = async (req, res) => {
 };
 
 
-/* ======================= REGION: Thêm bản ghi chấm công mới ======================= */
+/* ======================= Thêm bản ghi chấm công mới ======================= */
 /**
  * POST: Thêm một bản ghi chấm công mới cho nhân viên.
  * - Nhận attendanceData từ body request (employeeId, type, position).
@@ -87,7 +87,7 @@ export const addAttendanceLog = async (req, res) => {
 };
 
 
-/* ======================= REGION: Tính tổng giờ công tất cả nhân viên ======================= */
+/* ======================= Tính tổng giờ công tất cả nhân viên ======================= */
 /**
  * GET: Lấy tổng hợp giờ công cho tất cả nhân viên (theo từng ngày).
  * - Lấy dữ liệu giờ công từ service.
@@ -166,7 +166,7 @@ export const getEmployeeHours = async (req, res) => {
 };
 
 
-/* ======================= REGION: Thống kê tổng hợp chấm công ======================= */
+/* ======================= Thống kê tổng hợp chấm công ======================= */
 /**
  * GET: Lấy thống kê tổng hợp chấm công trong khoảng thời gian (ngày bắt đầu/kết thúc).
  * - Tổng số lượt chấm công (totalLogs).
@@ -217,7 +217,7 @@ export const getAttendanceStats = async (req, res) => {
 };
 
 
-/* ======================= REGION: Giờ công chi tiết 1 nhân viên ======================= */
+/* ======================= Giờ công chi tiết 1 nhân viên ======================= */
 /**
  * GET: Lấy chi tiết giờ công của một nhân viên (theo employeeId và khoảng ngày).
  * - list bản ghi raw (logs).

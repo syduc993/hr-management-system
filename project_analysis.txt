@@ -17,6 +17,10 @@ hr-management-system/
 ├── project_analysis.txt
 ├── Readme.md
 ├── vite.config.js
+├── public/
+│   └── fonts/
+│       ├── Roboto-Bold.ttf
+│       └── Roboto-Regular.ttf
 ├── server/
 │   ├── server.js
 │   ├── config/
@@ -190,6 +194,8 @@ hr-management-system/
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "express-session": "^1.18.2",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.1"
@@ -217,32 +223,195 @@ hr-management-system/
 
 ==================== File: .\Readme.md ====================
 
-Backend (Node.js/Express)
-Kiến trúc khuyến nghị:
-Layered Architecture (Service - Controller - Route - Middleware)
-Routes: Định nghĩa các endpoint, phân chia rõ theo module (vd: /employees, /attendance).
-Controllers: Xử lý request/response, gọi sang service. Không chứa logic nghiệp vụ sâu.
-Services: Chứa logic nghiệp vụ (business logic) và thao tác dữ liệu (gọi API, DB, Lark).
-Utils & Validators: Kiểm tra, format, handler lỗi, validation input.
-Models: (Nếu xài ORM/database thực), mô tả cấu trúc dữ liệu.
-(Bạn đã có phân chia khá chuẩn, chỉ cần dọn lại các chỗ còn lẫn lộn, loại bỏ code cũ).
-Các điểm cần lưu ý:
-Không gọi trực tiếp từ route xuống service, luôn qua controller.
-Chỉ để một nơi chịu trách nhiệm chính về validate (thường là middleware hoặc nằm trong services/utils).
-Không để controllers vừa thao tác dữ liệu, vừa gọi nhiều tầng - 1 controller = 1 use-case nghiệp vụ.
-Frontend (React + Context + Service Layer)
-Kiến trúc khuyến nghị:
-Component-based (Atomic/Domain)
-Pages: Trang tương ứng route (/dashboard, /employee-management...)
-Components: Thành phần tái sử dụng (Form, Table, Modal, Cards...)
-Hooks: Quản lý logic dùng chung (fetch data, validate, notification...)
-Contexts: Chứa state global (Auth, Notification).
-Services layer: File JS quản lý toàn bộ gọi API, các hàm CRUD trả ra đúng format.
-Styles: Để riêng, tránh style inline nhiều.
-Ngoài ra:
-Hạn chế để logic xử lý data trực tiếp trong component, hãy đẩy tối đa sang service/hook.
-Tách biệt rõ các tầng: Page → Hook → Service → API (và Context nếu cần).
-Kiểm tra toàn bộ các API bạn gọi trả đúng structure JSON (success, data, message...), đừng xử lý dữ liệu thẳng từ response chưa kiểm soát.
+HỆ THỐNG QUẢN LÝ NHÂN SỰ (HR Management System)
+Đây là tài liệu hướng dẫn về kiến trúc, luồng hoạt động và cách phát triển các tính năng mới cho dự án.
+
+1. Luồng Hoạt Động Của Một Tính Năng (Ví dụ: Thêm Nhân Viên Mới)
+Tính năng "Thêm nhân viên mới" là một ví dụ điển hình cho thấy sự tương tác giữa Frontend và Backend. Luồng dữ liệu đi từ giao diện người dùng, qua các tầng xử lý ở client, gửi yêu cầu đến server, server xử lý và lưu vào "database" (Lark Bitable), sau đó trả kết quả về cho client.
+
+a. Phía Frontend (React)
+Giao diện người dùng (src/components/employee/EmployeeAddForm.jsx)
+
+Người dùng nhập thông tin (Họ tên, SĐT, Giới tính, Ngân hàng...) vào các ô input trong form.
+
+Người dùng nhấn vào nút "Chọn Đề xuất Tuyển dụng", một modal (RecruitmentModal.jsx) hiện lên để chọn.
+
+Trạng thái của form được quản lý bởi useState trong component.
+
+Xử lý sự kiện (src/components/employee/EmployeeAddForm.jsx)
+
+Khi người dùng nhấn nút "Lưu Nhân viên", hàm handleSubmit được kích hoạt.
+
+Hàm này thực hiện validation cơ bản, sau đó đóng gói dữ liệu (bao gồm thông tin cá nhân và workHistoryData) thành một đối tượng payload.
+
+Gọi Hook (src/pages/EmployeeManagementPage.jsx)
+
+EmployeeAddForm gọi hàm onSave được truyền từ trang cha là EmployeeManagementPage.
+
+Hàm onSave này chính là handleAddEmployee được cung cấp bởi hook useEmployees.
+
+Xử lý logic trong Hook (src/hooks/useEmployees.js)
+
+Hook useEmployees nhận payload và gọi hàm addEmployee từ tầng service của client.
+
+Nó quản lý trạng thái loading và hiển thị thông báo (thành công/thất bại) thông qua useNotification.
+
+Tầng Service Client (src/services/employee.js)
+
+Hàm addEmployee trong file này tạo và gửi một yêu cầu HTTP POST đến API của server tại endpoint /api/employees bằng axios (thông qua ApiClient).
+
+b. Phía Backend (Node.js/Express)
+Tiếp nhận yêu cầu (server/server.js)
+
+Server Express nhận yêu cầu POST tại /api/employees.
+
+Định tuyến (server/routes/employees.js)
+
+Router xử lý endpoint /api/employees. Nó áp dụng các middleware theo thứ tự:
+
+authenticateUser: Kiểm tra người dùng đã đăng nhập chưa.
+
+authorizeRoles('hr', 'admin'): Kiểm tra người dùng có quyền thực hiện hành động này không.
+
+ValidationMiddleware.validateAddEmployee: Kiểm tra dữ liệu đầu vào có hợp lệ không.
+
+Controller (server/controllers/employeeController.js)
+
+Nếu tất cả middleware đều pass, hàm addEmployee trong controller sẽ được thực thi.
+
+Controller nhận req.body, chuẩn bị dữ liệu và gọi sang tầng service để xử lý logic nghiệp vụ chính. Nó không trực tiếp thao tác với database.
+
+Nó gọi larkServiceManager.addEmployee(employeeData).
+
+Service (Logic nghiệp vụ) (server/services/employees/employee-service.js)
+
+Đây là nơi xử lý logic chính:
+
+Hàm addEmployee nhận dữ liệu từ controller.
+
+Nó gọi generateEmployeeId để tạo mã nhân viên duy nhất.
+
+Nó gọi checkEmployeeIdExists để đảm bảo không có nhân viên trùng lặp.
+
+Nó gọi transformEmployeeForLark để chuyển đổi dữ liệu thành định dạng mà Lark Bitable yêu cầu.
+
+Nó gọi larkServiceManager.addWorkHistory() để tạo bản ghi lịch sử công việc liên quan, đảm bảo tính toàn vẹn dữ liệu (nếu thêm nhân viên thất bại thì không thêm lịch sử).
+
+Tương tác "Database" (server/services/core/lark-client.js)
+
+EmployeeService sử dụng LarkClient.post() để gửi yêu cầu API đến Lark Bitable, tạo một bản ghi mới trong bảng Nhân viên.
+
+Phản hồi
+
+Kết quả từ Lark API được trả ngược lại qua các tầng: LarkClient -> EmployeeService -> EmployeeController.
+
+EmployeeController định dạng phản hồi JSON (sử dụng formatResponse) và gửi về cho client.
+
+Frontend nhận phản hồi, hook useEmployees cập nhật lại danh sách nhân viên và useNotification hiển thị thông báo thành công.
+
+2. Hướng Dẫn Thêm Một Trường Dữ Liệu Mới (Ví dụ: Thêm "Ghi Chú" cho Nhân Viên)
+Khi muốn thêm một trường dữ liệu mới, luồng làm việc tốt nhất là đi từ dưới lên (Backend -> Frontend) để đảm bảo dữ liệu được xử lý và lưu trữ đúng cách trước khi xây dựng giao diện.
+
+Yêu cầu: Thêm một trường "Ghi chú" (notes) vào form thêm nhân viên.
+
+Bước 1: Cập nhật Backend (Nơi lưu trữ và xử lý dữ liệu)
+"Database" (Lark Bitable)
+
+Hành động: Mở bảng "Employees" trong Lark Base của bạn và thêm một cột mới có tên là "Ghi chú" (kiểu Text). Đây là bước quan trọng nhất, là nguồn của sự thật (source of truth).
+
+Service (server/services/employees/employee-service.js)
+
+Mục đích: Dạy cho service biết về sự tồn tại của trường notes.
+
+Hành động:
+
+Trong hàm transformEmployeeForLark(employeeData), thêm một dòng để ánh xạ dữ liệu:
+
+javascript
+return {
+    // ... các trường cũ
+    'Ghi chú': employeeData.notes || '', // Thêm dòng này
+    'Trạng thái': employeeData.status || 'active'
+};
+Trong hàm transformEmployeeData(larkData), thêm một dòng để đọc dữ liệu từ Lark về:
+
+javascript
+return larkData.map(record => ({
+    // ... các trường cũ
+    notes: record.fields['Ghi chú'] || '', // Thêm dòng này
+    createdAt: record.fields['Created At'] || new Date().toISOString(),
+    // ...
+}));
+Controller (server/controllers/employeeController.js)
+
+Mục đích: Nhận trường notes từ request và truyền nó xuống service.
+
+Hành động:
+
+Trong hàm addEmployee, nhận notes từ req.body:
+
+javascript
+const { fullName, phoneNumber, gender, bankAccount, bankName, workHistoryData, notes } = req.body;
+Khi tạo employeeData để truyền xuống service, thêm trường notes:
+
+javascript
+const employeeData = {
+    // ... các trường cũ
+    notes, // Thêm trường này
+    status: 'active',
+    createdAt: new Date().toISOString()
+};
+Validation (Tùy chọn) (server/middleware/validation.js)
+
+Nếu bạn muốn validate trường "Ghi chú" (ví dụ: không được quá 500 ký tự), hãy thêm logic vào EmployeeValidator.validateEmployeeData.
+
+Bước 2: Cập nhật Frontend (Nơi người dùng nhập liệu)
+Component Form (src/components/employee/EmployeeAddForm.jsx)
+
+Mục đích: Hiển thị ô nhập "Ghi chú" trên giao diện.
+
+Hành động:
+
+Thêm notes: '' vào initialFormData.
+
+Trong phần JSX của form, thêm một <textarea> cho trường "Ghi chú":
+
+jsx
+// Đặt ở vị trí phù hợp, ví dụ sau phần Thông tin Ngân hàng
+<div className="mb-3">
+  <label htmlFor="notes" className="form-label">Ghi chú</label>
+  <textarea
+    id="notes"
+    name="notes"
+    className="form-control"
+    placeholder="Thêm ghi chú về nhân viên..."
+    value={formData.notes}
+    onChange={handleChange}
+    disabled={loading}
+    rows="3"
+  ></textarea>
+</div>
+Hàm handleChange đã có sẵn sẽ tự động xử lý việc cập nhật state cho trường notes.
+
+Payload Gửi đi (src/components/employee/EmployeeAddForm.jsx)
+
+Mục đích: Đảm bảo trường notes được gửi đi trong request API.
+
+Hành động: Trong hàm handleSubmit, đối tượng payload đã bao gồm tất cả các trường từ formData (...formData), nên bạn không cần sửa gì thêm. Dữ liệu notes sẽ tự động được gửi đi.
+
+Tóm tắt các file cần sửa:
+Bắt buộc:
+
+server/services/employees/employee-service.js (Để đọc/ghi trường mới).
+
+server/controllers/employeeController.js (Để nhận dữ liệu từ request).
+
+src/components/employee/EmployeeAddForm.jsx (Để hiển thị ô nhập liệu và quản lý state).
+
+Tùy chọn (nhưng khuyến khích):
+4. server/middleware/validation.js (Để validate dữ liệu mới).
+
+Bằng cách tuân theo luồng "từ dưới lên" này, bạn đảm bảo rằng hệ thống của mình sẵn sàng xử lý và lưu trữ dữ liệu mới một cách chính xác trước khi bạn xây dựng giao diện cho nó, giúp tránh các lỗi không đồng bộ.
 ```
 
 
@@ -488,7 +657,7 @@ import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
 
 
-/* ======================= REGION: Lấy danh sách bản ghi chấm công ======================= */
+/* ======================= Lấy danh sách bản ghi chấm công ======================= */
 /**
  * GET: Lấy danh sách các bản ghi chấm công (attendance logs) dựa trên filter từ query parameters.
  * - Trả về data bản ghi chấm công dạng list.
@@ -513,7 +682,7 @@ export const getAttendanceLogs = async (req, res) => {
 };
 
 
-/* ======================= REGION: Thêm bản ghi chấm công mới ======================= */
+/* ======================= Thêm bản ghi chấm công mới ======================= */
 /**
  * POST: Thêm một bản ghi chấm công mới cho nhân viên.
  * - Nhận attendanceData từ body request (employeeId, type, position).
@@ -572,7 +741,7 @@ export const addAttendanceLog = async (req, res) => {
 };
 
 
-/* ======================= REGION: Tính tổng giờ công tất cả nhân viên ======================= */
+/* ======================= Tính tổng giờ công tất cả nhân viên ======================= */
 /**
  * GET: Lấy tổng hợp giờ công cho tất cả nhân viên (theo từng ngày).
  * - Lấy dữ liệu giờ công từ service.
@@ -651,7 +820,7 @@ export const getEmployeeHours = async (req, res) => {
 };
 
 
-/* ======================= REGION: Thống kê tổng hợp chấm công ======================= */
+/* ======================= Thống kê tổng hợp chấm công ======================= */
 /**
  * GET: Lấy thống kê tổng hợp chấm công trong khoảng thời gian (ngày bắt đầu/kết thúc).
  * - Tổng số lượt chấm công (totalLogs).
@@ -702,7 +871,7 @@ export const getAttendanceStats = async (req, res) => {
 };
 
 
-/* ======================= REGION: Giờ công chi tiết 1 nhân viên ======================= */
+/* ======================= Giờ công chi tiết 1 nhân viên ======================= */
 /**
  * GET: Lấy chi tiết giờ công của một nhân viên (theo employeeId và khoảng ngày).
  * - list bản ghi raw (logs).
@@ -2783,6 +2952,12 @@ import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
 
+
+/**
+ * @class AttendanceService
+ * @description Quản lý tất cả các nghiệp vụ liên quan đến chấm công,
+ * bao gồm lấy dữ liệu từ Lark Base, thêm bản ghi mới, và tính toán giờ làm.
+ */
 class AttendanceService extends BaseService {
     constructor() {
         super();
@@ -2794,6 +2969,18 @@ class AttendanceService extends BaseService {
         console.log('Initializing Attendance Service...');
     }
 
+
+    // =================================================================
+    //  PUBLIC API METHODS - CÁC HÀM CUNG CẤP RA BÊN NGOÀI
+    // =================================================================
+
+    /** Lấy danh sách bản ghi chấm công từ Lark Bitable, có hỗ trợ cache và bộ lọc.
+     * @param {object} [filters={}] - Các bộ lọc để truy vấn.
+     * @param {string} [filters.employeeId] - Lọc theo Mã nhân viên.
+     * @param {string} [filters.dateFrom] - Lọc từ ngày (YYYY-MM-DD).
+     * @param {string} [filters.dateTo] - Lọc đến ngày (YYYY-MM-DD).
+     * @returns {Promise<Array<object>>} - Mảng các bản ghi chấm công đã được chuyển đổi.
+     */
     async getAttendanceLogs(filters = {}) {
         const cacheKey = `attendance_logs_${JSON.stringify(filters)}`;
         let logs = CacheService.get(cacheKey);
@@ -2838,6 +3025,11 @@ class AttendanceService extends BaseService {
         return logs;
     }
 
+
+    /** Thêm một bản ghi chấm công mới vào Lark Bitable.
+     * @param {object} attendanceData - Dữ liệu chấm công cần thêm.
+     * @returns {Promise<object>} - Bản ghi chấm công đã được tạo và chuyển đổi.
+     */
     async addAttendanceLog(attendanceData) {
         try {
             const transformedData = this.transformAttendanceForLark(attendanceData);
@@ -2856,7 +3048,12 @@ class AttendanceService extends BaseService {
         }
     }
 
-    // ✅ CẬP NHẬT: getEmployeeHours để hiển thị tất cả nhân viên
+
+    /**
+     * Lấy và tổng hợp giờ làm cho tất cả nhân viên có phát sinh chấm công.
+     * @returns {Promise<object>} - Một đối tượng với key là employeeId và value là mảng các ngày công.
+     * Ví dụ: { "NV001": [{ date: "2025-08-08", totalHours: "8 giờ 0 phút", ... }] }
+     */
     async getEmployeeHours() {
         const logs = await this.getAttendanceLogs();
         console.log('🔍 Total attendance logs:', logs.length);
@@ -2890,15 +3087,18 @@ class AttendanceService extends BaseService {
         return employeeHours;
     }
 
+    // =================================================================
+    //  BUSINESS LOGIC & CALCULATIONS - LOGIC NGHIỆP VỤ & TÍNH TOÁN
+    // =================================================================
 
-    // ✅ CẬP NHẬT: Thêm more detailed debugging
+
+    /**
+     * Gom nhóm các bản ghi chấm công theo mã nhân viên và ngày.
+     * @param {Array<object>} logs - Mảng các bản ghi chấm công.
+     * @returns {object} - Đối tượng đã được gom nhóm. 
+     * Ví dụ: { "NV001": { "2025-08-08": [log1, log2] } }
+     */
     groupLogsByEmployeeAndDate(logs) {
-        console.log('🔍 DEBUG: Raw logs for grouping:', logs.map(log => ({
-            employeeId: log.employeeId,
-            date: log.date,
-            type: log.type,
-            timestamp: log.timestamp
-        })));
         
         const grouped = {};
         
@@ -2919,16 +3119,18 @@ class AttendanceService extends BaseService {
             grouped[log.employeeId][log.date].push(log);
         });
         
-        console.log('🔍 DEBUG: Grouped logs:', Object.keys(grouped).map(empId => ({
-            employeeId: empId,
-            dates: Object.keys(grouped[empId]),
-            totalRecords: Object.values(grouped[empId]).flat().length
-        })));
         
         return grouped;
     }
 
-    // ✅ TÍNH GIỜ CÔNG THEO NGÀY VÀ CHỨC VỤ
+
+    /**
+     * Hàm điều phối: Tính toán giờ làm trong một ngày dựa trên chức vụ của nhân viên.
+     * @param {string} employeeId - Mã nhân viên.
+     * @param {string} date - Ngày tính công (YYYY-MM-DD).
+     * @param {Array<object>} dayLogs - Mảng các bản ghi chấm công trong ngày đó.
+     * @returns {object} - Kết quả giờ công và các cảnh báo.
+     */
     calculateDailyHours(employeeId, date, dayLogs) {
         if (dayLogs.length === 0) {
             return {
@@ -2941,7 +3143,13 @@ class AttendanceService extends BaseService {
         return this.calculateSimpleHours(dayLogs)
     }
 
-    // ✅ THÊM: Logic đơn giản cho tất cả nhân viên
+
+    /**
+     * Logic tính giờ mặc định: lấy check-in sớm nhất và check-out muộn nhất trong ngày.
+     * Phù hợp cho nhân viên có lịch làm việc linh hoạt hoặc không theo ca cố định.
+     * @param {Array<object>} dayLogs - Các log chấm công trong ngày.
+     * @returns {object} - Kết quả giờ công.
+     */
     calculateSimpleHours(dayLogs) {
         const checkinLogs = dayLogs.filter(log => log.type === 'Checkin');
         const checkoutLogs = dayLogs.filter(log => log.type === 'Checkout');
@@ -2989,7 +3197,12 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ TÍNH GIỜ CHO MASCOT (4 lần chấm công/ngày)
+
+    /**
+     * Logic tính giờ cho Mascot: yêu cầu chấm công 4 lần/ngày (vào/ra ca sáng, vào/ra ca chiều).
+     * @param {Array<object>} dayLogs - Các log chấm công trong ngày.
+     * @returns {object} - Kết quả giờ công buổi sáng, chiều và tổng cộng.
+     */
     calculateMascotHours(dayLogs) {
         // Kiểm tra số lần chấm công
         if (dayLogs.length !== 4) {
@@ -3028,7 +3241,12 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ TÍNH GIỜ CHO NHÂN VIÊN THỜI VỤ (2 lần chấm công/ngày)
+
+    /**
+     * Logic tính giờ cho nhân viên thời vụ: yêu cầu đúng 1 check-in và 1 check-out.
+     * @param {Array<object>} dayLogs - Các log chấm công trong ngày.
+     * @returns {object} - Kết quả giờ công.
+     */
     calculateRegularHours(dayLogs) {
         const checkinLog = dayLogs.find(log => log.type === 'Checkin');
         const checkoutLog = dayLogs.find(log => log.type === 'Checkout');
@@ -3055,7 +3273,12 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ TÍNH GIỜ CHO 1 CA (DÙNG CHO MASCOT)
+
+    /**
+     * Tính toán giờ làm cho một ca đơn lẻ (gồm 1 check-in và 1 check-out) (Dùng cho masscot).
+     * @param {Array<object>} shiftLogs - Các log trong một ca.
+     * @returns {{hours: number, warnings: Array<string>}} - Số giờ và cảnh báo.
+     */
     calculateShiftHours(shiftLogs) {
         const checkin = shiftLogs.find(log => log.type === 'Checkin');
         const checkout = shiftLogs.find(log => log.type === 'Checkout');
@@ -3077,58 +3300,16 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ FORMAT HIỂN THỊ GIỜ: "8 giờ 30 phút"
-    formatHoursDisplay(totalHours) {
-        if (!totalHours || totalHours === 0) return '0 giờ 0 phút';
-        
-        const hours = Math.floor(totalHours);
-        const minutes = Math.round((totalHours - hours) * 60);
-        
-        if (minutes === 0) {
-            return `${hours} giờ`;
-        } else if (hours === 0) {
-            return `${minutes} phút`;
-        } else {
-            return `${hours} giờ ${minutes} phút`;
-        }
-    }
 
-    // ✅ FILTER THEO KHOẢNG NGÀY
-    filterByDateRange(logs, dateFrom, dateTo) {
-        return logs.filter(log => {
-            const logDate = new Date(log.date);
-            const fromDate = dateFrom ? new Date(dateFrom) : null;
-            const toDate = dateTo ? new Date(dateTo) : null;
-            
-            if (fromDate && logDate < fromDate) return false;
-            if (toDate && logDate > toDate) return false;
-            
-            return true;
-        });
-    }
+    // =================================================================
+    //  DATA TRANSFORMATION & FILTERING - CHUYỂN ĐỔI & LỌC DỮ LIỆU
+    // =================================================================
 
-    // ✅ SỬA: HELPER FUNCTIONS với timestamp conversion đúng
-    convertUnixToDateTime(unixTimestamp) {
-        if (!unixTimestamp) return '';
-        
-        // Nếu timestamp đã là ISO string
-        if (typeof unixTimestamp === 'string' && unixTimestamp.includes('T')) {
-            const date = new Date(unixTimestamp);
-            if (date.getFullYear() > 2000 && date.getFullYear() < 2100) {
-                return unixTimestamp;
-            }
-        }
-        
-        // ✅ QUAN TRỌNG: Timestamp từ Lark đã là milliseconds, không nhân 1000
-        if (typeof unixTimestamp === 'number') {
-            return new Date(unixTimestamp).toISOString();
-        }
-        
-        console.warn('⚠️ Invalid timestamp format:', unixTimestamp);
-        return new Date().toISOString();
-    }
-
-    // ✅ SỬA: Sử dụng trực tiếp timestamp từ convertUnixToDateTime
+    /**
+     * Chuyển đổi dữ liệu chấm công thô từ Lark Bitable thành một đối tượng có cấu trúc rõ ràng.
+     * @param {Array<object>} larkData - Mảng các bản ghi từ API của Lark.
+     * @returns {Array<object>} - Mảng các bản ghi đã được chuyển đổi.
+     */
     transformAttendanceData(larkData) {
         
         return larkData.map(record => {
@@ -3160,7 +3341,12 @@ class AttendanceService extends BaseService {
         });
     }
 
-    // ✅ TRANSFORM DỮ LIỆU ĐỂ GỬI VỀ LARKBASE
+
+    /**
+     * Chuyển đổi dữ liệu từ ứng dụng sang định dạng mà API của Lark Bitable yêu cầu.
+     * @param {object} attendanceData - Dữ liệu chấm công từ ứng dụng.
+     * @returns {object} - Đối tượng `fields` để gửi cho Lark.
+     */
     transformAttendanceForLark(attendanceData) {
         return {
             'Mã nhân viên': attendanceData.employeeId,
@@ -3172,7 +3358,39 @@ class AttendanceService extends BaseService {
         };
     }
 
-    // ✅ THÊM: Helper method để extract employeeId từ Lark field
+
+    /**
+     * Lọc một danh sách các bản ghi chấm công theo khoảng ngày.
+     * @param {Array<object>} logs - Mảng các bản ghi chấm công.
+     * @param {string} dateFrom - Ngày bắt đầu (YYYY-MM-DD).
+     * @param {string} dateTo - Ngày kết thúc (YYYY-MM-DD).
+     * @returns {Array<object>} - Mảng các bản ghi đã được lọc.
+     */
+    filterByDateRange(logs, dateFrom, dateTo) {
+        return logs.filter(log => {
+            const logDate = new Date(log.date);
+            const fromDate = dateFrom ? new Date(dateFrom) : null;
+            const toDate = dateTo ? new Date(dateTo) : null;
+            
+            if (fromDate && logDate < fromDate) return false;
+            if (toDate && logDate > toDate) return false;
+            
+            return true;
+        });
+    }
+
+
+
+    // =================================================================
+    //  UTILITY HELPERS - CÁC HÀM TIỆN ÍCH
+    // =================================================================
+
+
+    /**
+     * Trích xuất mã nhân viên từ trường dữ liệu của Lark (có thể là string hoặc array).
+     * @param {string|Array} employeeIdField - Dữ liệu từ cột "Mã nhân viên".
+     * @returns {string} - Mã nhân viên dạng chuỗi.
+     */
     extractEmployeeId(employeeIdField) {
         if (!employeeIdField) return '';
         
@@ -3195,10 +3413,58 @@ class AttendanceService extends BaseService {
         console.warn('⚠️ Unknown employeeId format:', employeeIdField);
         return '';
     }
+
+
+    /**
+     * Chuyển đổi timestamp từ Lark (có thể là Unix milliseconds hoặc ISO string) sang định dạng ISO string.
+     * @param {number|string} timestampValue - Giá trị timestamp từ Lark.
+     * @returns {string} - Chuỗi ISO 8601 (ví dụ: "2025-08-08T10:00:00.000Z").
+     */
+    convertUnixToDateTime(unixTimestamp) {
+        if (!unixTimestamp) return '';
+        
+        // Nếu timestamp đã là ISO string
+        if (typeof unixTimestamp === 'string' && unixTimestamp.includes('T')) {
+            const date = new Date(unixTimestamp);
+            if (date.getFullYear() > 2000 && date.getFullYear() < 2100) {
+                return unixTimestamp;
+            }
+        }
+        
+        // ✅ QUAN TRỌNG: Timestamp từ Lark đã là milliseconds, không nhân 1000
+        if (typeof unixTimestamp === 'number') {
+            return new Date(unixTimestamp).toISOString();
+        }
+        
+        console.warn('⚠️ Invalid timestamp format:', unixTimestamp);
+        return new Date().toISOString();
+    }
+
+
+    /**
+     * Định dạng tổng số giờ sang chuỗi hiển thị "X giờ Y phút".
+     * @param {number} totalHours - Tổng số giờ (ví dụ: 8.5).
+     * @returns {string} - Chuỗi đã định dạng (ví dụ: "8 giờ 30 phút").
+     */
+    formatHoursDisplay(totalHours) {
+        if (!totalHours || totalHours === 0) return '0 giờ 0 phút';
+        
+        const hours = Math.floor(totalHours);
+        const minutes = Math.round((totalHours - hours) * 60);
+        
+        if (minutes === 0) {
+            return `${hours} giờ`;
+        } else if (hours === 0) {
+            return `${minutes} phút`;
+        } else {
+            return `${hours} giờ ${minutes} phút`;
+        }
+    }
+
 }
 
-export default AttendanceService;
 
+export default AttendanceService;
 ```
 
 
@@ -3269,7 +3535,6 @@ export default AttendanceValidator;
 // Attendance services exports
 export { default as AttendanceService } from './attendance-service.js';
 export { default as AttendanceValidator } from './attendance-validator.js';
-
 ```
 
 
@@ -3717,7 +3982,6 @@ class LarkClient {
 }
 
 export default new LarkClient();
-
 ```
 
 
@@ -3729,6 +3993,12 @@ import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
 import WorkHistoryService from './work-history-service.js';
 
+
+/**
+ * @class EmployeeService
+ * @description Quản lý các nghiệp vụ liên quan đến thông tin nhân viên,
+ * bao gồm CRUD (tạo, đọc, cập nhật, xóa) và các chức năng tìm kiếm, kiểm tra.
+ */
 class EmployeeService extends BaseService {
     constructor() {
         super();
@@ -3744,8 +4014,36 @@ class EmployeeService extends BaseService {
         await this.workHistoryService.initializeService();
     }
 
+    // =================================================================
+    //  PUBLIC API METHODS - CÁC HÀM CUNG CẤP RA BÊN NGOÀI
+    // =================================================================
 
 
+    /**
+     * Lấy toàn bộ danh sách nhân viên từ Lark, có hỗ trợ cache.
+     * @returns {Promise<Array<object>>} - Mảng các đối tượng nhân viên.
+     */
+    async getAllEmployees() {
+        try {
+
+            const response = await LarkClient.getAllRecords(
+                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
+            );
+
+            let employees = this.transformEmployeeData(response.data?.items || []);
+            return employees;
+        } catch (error) {
+            console.error('❌ EMPLOYEE: Error fetching employees from Lark:', error.message);
+            throw error;
+        }
+    }
+
+
+    /**
+     * Lấy thông tin một nhân viên bằng record_id của Lark, có hỗ trợ cache.
+     * @param {string} id - Record ID của nhân viên trong Lark.
+     * @returns {Promise<object|null>} - Đối tượng nhân viên hoặc null nếu không tìm thấy.
+     */
     async getEmployeeById(id) {
         try {
             console.log(`🔍 Getting employee by ID: ${id}`);
@@ -3770,25 +4068,29 @@ class EmployeeService extends BaseService {
     }
 
 
-    async getAllEmployees() {
-        try {
+    /**
+     * Tìm kiếm nhân viên dựa trên họ tên, mã nhân viên, hoặc số điện thoại.
+     * @param {string} query - Chuỗi tìm kiếm.
+     * @returns {Promise<Array<object>>} - Mảng các nhân viên phù hợp.
+     */
+    async searchEmployees(query) {
+        const employees = await this.getAllEmployees();
 
-            const response = await LarkClient.getAllRecords(
-                `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
-            );
+        if (!query) return employees;
 
-            let employees = this.transformEmployeeData(response.data?.items || []);
-            return employees;
-        } catch (error) {
-            console.error('❌ EMPLOYEE: Error fetching employees from Lark:', error.message);
-            throw error;
-        }
+        const searchTerm = query.toLowerCase();
+        return employees.filter(emp =>
+            emp.fullName.toLowerCase().includes(searchTerm) ||
+            emp.employeeId.toLowerCase().includes(searchTerm) ||
+            emp.phoneNumber.includes(searchTerm)
+        );
     }
 
-    generateEmployeeId(fullName, phoneNumber) {
-        return `${fullName} - ${phoneNumber}`;
-    }
-
+    /**
+     * Thêm một nhân viên mới vào Lark Bitable.
+     * @param {object} employeeData - Dữ liệu nhân viên cần thêm.
+     * @returns {Promise<object>} - Kết quả của việc thêm.
+     */
     async addEmployee(employeeData) {
         try {
             const transformedData = this.transformEmployeeForLark(employeeData);
@@ -3813,6 +4115,13 @@ class EmployeeService extends BaseService {
         }
     }
 
+
+    /**
+     * Cập nhật thông tin một nhân viên.
+     * @param {string} id - Record ID của nhân viên trong Lark.
+     * @param {object} employeeData - Dữ liệu cần cập nhật.
+     * @returns {Promise<object>} - Thông tin nhân viên sau khi cập nhật.
+     */
     async updateEmployee(id, employeeData) {
         try {
             const transformedData = this.transformEmployeeForLark(employeeData);
@@ -3831,6 +4140,12 @@ class EmployeeService extends BaseService {
         }
     }
 
+    
+    /**
+     * Xóa một nhân viên khỏi Lark.
+     * @param {string} id - Record ID của nhân viên trong Lark.
+     * @returns {Promise<boolean>} - True nếu xóa thành công.
+     */
     async deleteEmployee(id) {
         try {
             await LarkClient.delete(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`);
@@ -3845,6 +4160,13 @@ class EmployeeService extends BaseService {
         }
     }
 
+
+    /**
+     * Kiểm tra xem một mã nhân viên đã tồn tại hay chưa.
+     * Tối ưu bằng cách sử dụng filter của Lark API thay vì tải toàn bộ dữ liệu.
+     * @param {string} employeeId - Mã nhân viên cần kiểm tra.
+     * @returns {Promise<boolean>} - True nếu mã đã tồn tại.
+     */
     async checkEmployeeIdExists(employeeId) {
         try {
             console.log(`🔍 EMPLOYEE: Checking for duplicate ID: ${employeeId}`);
@@ -3866,19 +4188,17 @@ class EmployeeService extends BaseService {
         }
     }
 
-    async searchEmployees(query) {
-        const employees = await this.getAllEmployees();
 
-        if (!query) return employees;
+    // =================================================================
+    //  DATA TRANSFORMATION & UTILITY HELPERS
+    // =================================================================
 
-        const searchTerm = query.toLowerCase();
-        return employees.filter(emp =>
-            emp.fullName.toLowerCase().includes(searchTerm) ||
-            emp.employeeId.toLowerCase().includes(searchTerm) ||
-            emp.phoneNumber.includes(searchTerm)
-        );
-    }
 
+    /**
+     * Chuyển đổi dữ liệu nhân viên thô từ Lark sang định dạng chuẩn của ứng dụng.
+     * @param {Array<object>} larkData - Mảng bản ghi từ Lark.
+     * @returns {Array<object>} - Mảng các đối tượng nhân viên đã được định dạng.
+     */
     transformEmployeeData(larkData) {
 
         if (!Array.isArray(larkData)) {
@@ -3908,6 +4228,12 @@ class EmployeeService extends BaseService {
         return transformed;
     }
 
+
+    /**
+     * Chuyển đổi dữ liệu nhân viên từ ứng dụng sang định dạng `fields` mà Lark API yêu cầu.
+     * @param {object} employeeData - Dữ liệu nhân viên từ ứng dụng.
+     * @returns {object} - Đối tượng `fields` để gửi cho Lark.
+     */
     transformEmployeeForLark(employeeData) {
         return {
             'Mã nhân viên': employeeData.employeeId,
@@ -3921,6 +4247,13 @@ class EmployeeService extends BaseService {
             'Trạng thái': employeeData.status || 'active'
         };
     }
+
+
+
+    generateEmployeeId(fullName, phoneNumber) {
+        return `${fullName} - ${phoneNumber}`;
+    }
+
 }
 
 export default EmployeeService;
@@ -4006,6 +4339,17 @@ export { default as EmployeeValidator } from './employee-validator.js';
 ==================== File: .\server\services\employees\work-history-service.js ====================
 
 // server/services/employees/work-history-service.js
+
+
+/**
+ * @file Dịch vụ này chịu trách nhiệm quản lý tất cả các hoạt động liên quan đến
+ * Lịch sử Công tác của Nhân viên (Work History).
+ * Nó bao gồm các chức năng CRUD (Tạo, Đọc, Cập nhật, Xóa) dữ liệu từ
+ * Lark Bitable, cũng như các logic xác thực và biến đổi dữ liệu phức tạp.
+ * Dịch vụ sử dụng cache để tối ưu hóa hiệu suất cho các hoạt động đọc dữ liệu.
+ */
+
+
 import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
@@ -4015,7 +4359,12 @@ import CacheService from '../core/cache-service.js';
 // HÀM TIỆN ÍCH ĐỘC LẬP (STANDALONE UTILITY FUNCTIONS)
 // =================================================================
 
-// **HÀM TIỆN ÍCH ĐỊNH DẠNG NGÀY**
+
+/**
+ * Định dạng một giá trị ngày thành chuỗi 'DD/MM/YYYY'.
+ * @param {Date|string|number} dateValue - Giá trị ngày cần định dạng.
+ * @returns {string} Chuỗi ngày đã định dạng hoặc 'N/A' nếu không có giá trị, 'Ngày không hợp lệ' nếu sai định dạng.
+ */
 const formatDate = (dateValue) => {
     if (!dateValue) return 'N/A';
     const date = new Date(dateValue);
@@ -4056,7 +4405,7 @@ class WorkHistoryService extends BaseService {
     }
 
     // =================================================================
-    // HÀM CHÍNH - PUBLIC API (MAIN METHODS)
+    // CÁC HÀM CÔNG KHAI - PUBLIC API (MAIN METHODS)
     // =================================================================
 
 
@@ -4099,6 +4448,12 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+
+    /**
+     * Lấy lịch sử công tác của một nhân viên cụ thể dựa vào mã nhân viên.
+     * @param {string} employeeId - Mã của nhân viên.
+     * @returns {Promise<Array<Object>>} Một mảng chứa lịch sử công tác của nhân viên đó.
+     */
     async getWorkHistoryByEmployee(employeeId) {
         try {
             
@@ -4117,6 +4472,12 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+
+    /**
+     * Lấy một bản ghi lịch sử công tác cụ thể bằng ID của bản ghi (record_id).
+     * @param {string} id - ID của bản ghi trong Lark Bitable.
+     * @returns {Promise<Object|null>} Đối tượng lịch sử công tác hoặc null nếu không tìm thấy.
+     */
     async getWorkHistoryById(id) {
         try {
             console.log('🔍 WORK HISTORY SERVICE: Getting work history by ID:', id);
@@ -4136,6 +4497,14 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+
+        /**
+     * Thêm một bản ghi lịch sử công tác mới.
+     * @param {Object} workHistoryData - Dữ liệu về lịch sử công tác cần thêm.
+     * @param {Object} recruitmentService - Một instance của RecruitmentService để lấy thông tin đề xuất.
+     * @returns {Promise<Object>} Thông tin về bản ghi đã được tạo thành công.
+     * @throws {Error} Ném lỗi nếu dữ liệu không hợp lệ hoặc có lỗi từ API.
+     */
     async addWorkHistory(workHistoryData, recruitmentService) {
         try {
             const { employeeId, requestNo, fromDate, toDate, hourlyRate } = workHistoryData;
@@ -4182,6 +4551,14 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+
+    /**
+     * Cập nhật một bản ghi lịch sử công tác đã có.
+     * @param {string} id - ID của bản ghi cần cập nhật.
+     * @param {Object} workHistoryData - Dữ liệu mới để cập nhật.
+     * @returns {Promise<Object>} Thông tin về bản ghi đã được cập nhật.
+     * @throws {Error} Ném lỗi nếu không tìm thấy bản ghi hoặc có lỗi từ API.
+     */
     async updateWorkHistory(id, workHistoryData) {
         try {
             const { employeeId, requestNo, fromDate, toDate, hourlyRate } = workHistoryData;
@@ -4232,6 +4609,12 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+    /**
+     * Xóa một bản ghi lịch sử công tác bằng ID.
+     * @param {string} id - ID của bản ghi cần xóa.
+     * @returns {Promise<Object>} Thông báo thành công.
+     * @throws {Error} Ném lỗi nếu không tìm thấy bản ghi hoặc có lỗi từ API.
+     */
     async deleteWorkHistory(id) {
         try {
             console.log('🗑️ WORK HISTORY SERVICE: Deleting work history:', id);
@@ -4312,7 +4695,11 @@ class WorkHistoryService extends BaseService {
     // HÀM TIỆN ÍCH NỘI BỘ - INTERNAL HELPERS
     // =================================================================
 
-
+    /**
+     * Lấy và cache dữ liệu lương từ bảng lương.
+     * Dữ liệu này được dùng để làm giàu thông tin cho lịch sử công tác.
+     * @returns {Promise<Array<Object>>} Mảng các đối tượng lương đã được xử lý.
+     */
     async getSalaryData() {
         const cacheKey = 'salary_data_all';
         let salaryData = CacheService.get(cacheKey);
@@ -4343,6 +4730,11 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+    /**
+     * Xác thực các trường cơ bản của một đối tượng lịch sử công tác.
+     * @param {Object} workHistoryData - Dữ liệu lịch sử công tác.
+     * @throws {Error} Ném lỗi nếu có trường không hợp lệ.
+     */
     validateWorkHistoryFields(workHistoryData, recruitmentDetails) {
         const { fromDate, toDate, hourlyRate } = workHistoryData;
         
@@ -4383,6 +4775,15 @@ class WorkHistoryService extends BaseService {
         }
     }
 
+
+    /**
+     * Xác thực khoảng ngày làm việc, đảm bảo không trùng với các lịch sử đã có
+     * và phải nằm trong khoảng ngày của đề xuất tuyển dụng liên quan.
+     * @param {string} employeeId - Mã nhân viên.
+     * @param {Object} workHistoryData - Dữ liệu lịch sử công tác mới.
+     * @param {Object} recruitmentService - Instance của RecruitmentService.
+     * @throws {Error} Ném lỗi nếu có sự chồng chéo ngày hoặc ngày nằm ngoài đề xuất.
+     */
     async validateWorkHistoryDateOverlap(employeeId, workHistoryData, recruitmentService) {
         console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, New work period: ${workHistoryData.fromDate} - ${workHistoryData.toDate}`);
 
@@ -11225,6 +11626,7 @@ import { ApiClient } from '../services/api';
 import { useNotification } from '../hooks/useNotification';
 import Loading from '../components/common/Loading';
 
+
 const LARK_LOGS_URL = "https://atino-vietnam.sg.larksuite.com/base/Ey3EbVD9vacAHvs8cVvlHxkKg2r?table=tblU9YY1t4TwxXLh&view=vewpWpbNQv";
 const LARK_HOURS_URL = "https://atino-vietnam.sg.larksuite.com/base/Ey3EbVD9vacAHvs8cVvlHxkKg2r?table=tblV2dGhT2O7w30b&view=vewDULr7HU";
 
@@ -11356,7 +11758,678 @@ const AttendanceLogsPage = () => {
     }
   };
 
-  // Thay thế hoàn toàn hàm exportToExcel cũ bằng hàm này
+  const exportToPDF = async (request) => {
+      try {
+          setLoadingRecruitment(true);
+          showNotification('Đang chuẩn bị báo cáo PDF...', 'info');
+
+          // ==================================================================
+          // BƯỚC 1: LẤY DỮ LIỆU (Giữ nguyên)
+          // ==================================================================
+          const detailResponse = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
+          const detailedRecords = Array.isArray(detailResponse?.data?.records) ? detailResponse.data.records : [];
+          if (!detailResponse?.success) {
+              showNotification('Không thể tải dữ liệu chi tiết.', 'warning');
+              return;
+          }
+          
+          const comparisonResponse = await ApiClient.get(`/api/recruitment/daily-comparison/${request.requestNo}`);
+          const comparisonData = Array.isArray(comparisonResponse?.data?.dailyComparison) ? comparisonResponse.data.dailyComparison : [];
+
+          // ==================================================================
+          // BƯỚC 2: IMPORT THƯ VIỆN & KHỞI TẠO PDF
+          // ==================================================================
+          const { default: jsPDF } = await import('jspdf');
+          const { default: autoTable } = await import('jspdf-autotable');
+
+          const doc = new jsPDF('l', 'mm', 'a4');
+          const pageWidth = doc.internal.pageSize.getWidth();
+          const pageHeight = doc.internal.pageSize.getHeight();
+          let yPosition = 35;
+          
+          // ==================================================================
+          // BƯỚC 3: TẢI VÀ ĐĂNG KÝ 2 FONT (REGULAR & BOLD)
+          // ==================================================================
+          
+          const loadFont = async (url) => {
+              const response = await fetch(url);
+              if (!response.ok) {
+                  throw new Error(`Không thể tải file font: ${url}. Hãy chắc chắn file tồn tại.`);
+              }
+              const blob = await response.blob();
+              return await new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+              });
+          };
+
+          const robotoRegularBase64 = await loadFont('/fonts/Roboto-Regular.ttf');
+          const robotoBoldBase64 = await loadFont('/fonts/Roboto-Bold.ttf');
+
+          doc.addFileToVFS('Roboto-Regular.ttf', robotoRegularBase64);
+          doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+
+          doc.addFileToVFS('Roboto-Bold.ttf', robotoBoldBase64);
+          doc.addFont('Roboto-Bold.ttf', 'Roboto', 'bold');
+          
+          // ==================================================================
+          // BƯỚC 4: CÁC HÀM HELPER (Tối ưu và nhất quán)
+          // ==================================================================
+          
+          const createInfoTable = (doc, request, detailedRecords, yPosition) => {
+              const infoData = [
+                  ['Request No:', request?.requestNo || 'N/A'],
+                  ['Phòng ban:', request?.department || 'N/A'],
+                  ['Thời gian kế hoạch:', `${request?.fromDate || 'N/A'} - ${request?.toDate || 'N/A'}`],
+                  ['Tổng bản ghi chấm công:', detailedRecords.length.toString()],
+                  ['Tổng lương:', `${detailedRecords.reduce((sum, record) => sum + (record?.totalSalary || 0), 0).toLocaleString('vi-VN')} VNĐ`],
+                  ['Trạng thái:', request?.status || 'N/A']
+              ];
+
+              autoTable(doc, {
+                  startY: yPosition,
+                  head: [['Thông tin', 'Giá trị']],
+                  body: infoData,
+                  theme: 'grid',
+                  styles: { font: 'Roboto', fontStyle: 'normal', fontSize: 10, cellPadding: 3 },
+                  headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [41, 128, 185], textColor: 255 },
+                  columnStyles: {
+                      0: { fontStyle: 'bold', cellWidth: 60 },
+                      1: { cellWidth: 80 }
+                  },
+                  margin: { left: 20 }
+              });
+
+              return doc.lastAutoTable.finalY + 15;
+          };
+          
+          const drawTableTitle = (doc, title, yPosition) => {
+              doc.setFont('Roboto', 'bold');
+              doc.setFontSize(14);
+              doc.setTextColor(40, 40, 40);
+              doc.text(title, 20, yPosition);
+              return yPosition + 10;
+          };
+
+          const createDetailTable = (doc, detailedRecords, yPosition, pageHeight) => {
+              if (yPosition > pageHeight - 100) { doc.addPage(); yPosition = 20; }
+              yPosition = drawTableTitle(doc, 'CHI TIẾT CHẤM CÔNG THEO NGÀY', yPosition);
+              
+              // ✅ ĐÃ SỬA: Điền lại logic map dữ liệu chi tiết
+              const detailTableData = detailedRecords.map((record, index) => [
+                  (index + 1).toString(),
+                  record?.employeeId || 'N/A',
+                  typeof record?.workDate === 'number' ? formatDateTimeForCSV(record.workDate) : (record?.workDate || 'N/A'),
+                  typeof record?.checkInTime === 'number' ? formatTimeForCSV(record.checkInTime) : (record?.checkInTime || 'N/A'),
+                  typeof record?.checkOutTime === 'number' ? formatTimeForCSV(record.checkOutTime) : (record?.checkOutTime || 'N/A'),
+                  (record?.totalHours || 0).toString(),
+                  (record?.hourlyRate || 0).toLocaleString('vi-VN'),
+                  (record?.totalSalary || 0).toLocaleString('vi-VN')
+              ]);
+              
+              autoTable(doc, {
+                  startY: yPosition,
+                  head: [['STT', 'Mã NV', 'Ngày', 'Giờ vào', 'Giờ ra', 'Tổng giờ', 'Lương/giờ', 'Tổng lương']],
+                  body: detailTableData,
+                  theme: 'striped',
+                  styles: { font: 'Roboto', fontStyle: 'normal', fontSize: 8, cellPadding: 2 },
+                  headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [46, 204, 113], textColor: 255, fontSize: 9 },
+                  columnStyles: {
+                      0: { cellWidth: 15, halign: 'center' }, 1: { cellWidth: 25 }, 2: { cellWidth: 25 },
+                      3: { cellWidth: 20, halign: 'center' }, 4: { cellWidth: 20, halign: 'center' },
+                      5: { cellWidth: 20, halign: 'center' }, 6: { cellWidth: 25, halign: 'right' },
+                      7: { cellWidth: 30, halign: 'right' }
+                  },
+                  margin: { left: 20, right: 20 }
+              });
+
+              return doc.lastAutoTable.finalY + 15;
+          };
+
+          const createComparisonTable = (doc, comparisonData, yPosition, pageHeight) => {
+              if (yPosition > pageHeight - 80) { doc.addPage(); yPosition = 20; }
+              yPosition = drawTableTitle(doc, 'SO SÁNH KẾ HOẠCH VS THỰC TẾ', yPosition);
+                
+              // ✅ ĐÃ SỬA: Điền lại logic map dữ liệu so sánh
+              const comparisonTableData = comparisonData.map(day => [
+                  day?.date || 'N/A',
+                  day?.dayName || '',
+                  (day?.approvedCount ?? 0).toString(),
+                  (day?.actualCount ?? 0).toString(),
+                  (day?.variance ?? 0).toString(),
+                  `${(parseFloat(day?.utilizationRate || 0)).toFixed(1)}%`
+              ]);
+              
+              autoTable(doc, {
+                  startY: yPosition,
+                  head: [['Ngày', 'Thứ', 'KH Phê duyệt', 'Thực tế', 'Chênh lệch', 'Tỷ lệ (%)']],
+                  body: comparisonTableData,
+                  theme: 'striped',
+                  styles: { font: 'Roboto', fontStyle: 'normal', fontSize: 9, cellPadding: 3 },
+                  headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [231, 76, 60], textColor: 255 },
+                  columnStyles: {
+                      0: { cellWidth: 30 }, 1: { cellWidth: 25 },
+                      2: { cellWidth: 30, halign: 'center' }, 3: { cellWidth: 25, halign: 'center' },
+                      4: { cellWidth: 25, halign: 'center' }, 5: { cellWidth: 25, halign: 'center' }
+                  },
+                  margin: { left: 20 }
+              });
+              
+              return doc.lastAutoTable.finalY + 15;
+          };
+          
+          const addFooter = (doc, pageWidth, pageHeight) => {
+              const totalPages = doc.internal.getNumberOfPages();
+              for (let i = 1; i <= totalPages; i++) {
+                  doc.setPage(i);
+                  doc.setFont('Roboto', 'normal');
+                  doc.setFontSize(8);
+                  doc.setTextColor(128, 128, 128);
+                  doc.text(
+                      `Tạo lúc: ${new Date().toLocaleString('vi-VN')} | Trang ${i}/${totalPages}`,
+                      pageWidth - 20, pageHeight - 10, { align: 'right' }
+                  );
+              }
+          };
+
+          // ==================================================================
+          // BƯỚC 5: TẠO NỘI DUNG PDF
+          // ==================================================================
+          
+          doc.setFont('Roboto', 'bold');
+          doc.setFontSize(20);
+          doc.setTextColor(40, 40, 40);
+          doc.text('BÁO CÁO CHI TIẾT CHẤM CÔNG', pageWidth / 2, 20, { align: 'center' });
+          
+          yPosition = createInfoTable(doc, request, detailedRecords, yPosition);
+          if (detailedRecords.length > 0) { yPosition = createDetailTable(doc, detailedRecords, yPosition, pageHeight); }
+          if (comparisonData.length > 0) { yPosition = createComparisonTable(doc, comparisonData, yPosition, pageHeight); }
+          
+          addFooter(doc, pageWidth, pageHeight);
+
+          // ==================================================================
+          // BƯỚC 6: LƯU FILE
+          // ==================================================================
+          const fileName = `bao_cao_${request?.requestNo || 'unknown'}_${new Date().toISOString().split('T')[0]}.pdf`;
+          doc.save(fileName);
+
+          showNotification(`Đã xuất báo cáo PDF: ${fileName}`, 'success');
+
+      } catch (error) {
+          console.error('Lỗi khi xuất PDF:', error);
+          showNotification(`Lỗi xuất PDF: ${error.message}`, 'error');
+      } finally {
+          setLoadingRecruitment(false);
+      }
+  };
+
+
+
+
+
+
+
+// const exportToPDF = async (request) => {
+//     try {
+//         setLoadingRecruitment(true);
+//         showNotification('Đang chuẩn bị báo cáo PDF...', 'info');
+
+//         // ==================================================================
+//         // BƯỚC 1: LẤY DỮ LIỆU (Giữ nguyên)
+//         // ==================================================================
+//         const detailResponse = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
+//         const detailedRecords = Array.isArray(detailResponse?.data?.records) ? detailResponse.data.records : [];
+//         if (!detailResponse?.success) {
+//             showNotification('Không thể tải dữ liệu chi tiết.', 'warning');
+//             return;
+//         }
+        
+//         const comparisonResponse = await ApiClient.get(`/api/recruitment/daily-comparison/${request.requestNo}`);
+//         const comparisonData = Array.isArray(comparisonResponse?.data?.dailyComparison) ? comparisonResponse.data.dailyComparison : [];
+
+//         // ==================================================================
+//         // BƯỚC 2: IMPORT THƯ VIỆN & KHỞI TẠO PDF
+//         // ==================================================================
+//         const { default: jsPDF } = await import('jspdf');
+//         const { default: autoTable } = await import('jspdf-autotable');
+
+//         const doc = new jsPDF('l', 'mm', 'a4');
+//         const pageWidth = doc.internal.pageSize.getWidth();
+//         const pageHeight = doc.internal.pageSize.getHeight();
+//         let yPosition = 35;
+        
+//         // ==================================================================
+//         // ✅ BƯỚC 3: TẢI VÀ ĐĂNG KÝ 2 FONT (REGULAR & BOLD)
+//         // ==================================================================
+        
+//         // Hàm helper để tải và chuyển đổi font
+//         const loadFont = async (url) => {
+//             const response = await fetch(url);
+//             if (!response.ok) {
+//                 throw new Error(`Không thể tải file font: ${url}. Hãy chắc chắn file tồn tại.`);
+//             }
+//             const blob = await response.blob();
+//             return await new Promise((resolve, reject) => {
+//                 const reader = new FileReader();
+//                 reader.onloadend = () => resolve(reader.result.split(',')[1]);
+//                 reader.onerror = reject;
+//                 reader.readAsDataURL(blob);
+//             });
+//         };
+
+//         // Tải cả hai font
+//         const robotoRegularBase64 = await loadFont('/fonts/Roboto-Regular.ttf');
+//         const robotoBoldBase64 = await loadFont('/fonts/Roboto-Bold.ttf');
+
+//         // Thêm cả hai font vào VFS của jsPDF và đăng ký chúng
+//         doc.addFileToVFS('Roboto-Regular.ttf', robotoRegularBase64);
+//         doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+
+//         doc.addFileToVFS('Roboto-Bold.ttf', robotoBoldBase64);
+//         doc.addFont('Roboto-Bold.ttf', 'Roboto', 'bold');
+        
+//         // ==================================================================
+//         // BƯỚC 4: CÁC HÀM HELPER (Tối ưu và nhất quán)
+//         // ==================================================================
+        
+//         const createInfoTable = (doc, request, detailedRecords, yPosition) => {
+//             const infoData = [
+//                 ['Request No:', request?.requestNo || 'N/A'],
+//                 ['Phòng ban:', request?.department || 'N/A'],
+//                 ['Thời gian kế hoạch:', `${request?.fromDate || 'N/A'} - ${request?.toDate || 'N/A'}`],
+//                 ['Tổng bản ghi chấm công:', detailedRecords.length.toString()],
+//                 ['Tổng lương:', `${detailedRecords.reduce((sum, record) => sum + (record?.totalSalary || 0), 0).toLocaleString('vi-VN')} VNĐ`],
+//                 ['Trạng thái:', request?.status || 'N/A']
+//             ];
+
+//             autoTable(doc, {
+//                 startY: yPosition,
+//                 head: [['Thông tin', 'Giá trị']],
+//                 body: infoData,
+//                 theme: 'grid',
+//                 styles: { font: 'Roboto', fontStyle: 'normal', fontSize: 10, cellPadding: 3 },
+//                 headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [41, 128, 185], textColor: 255 },
+//                 columnStyles: {
+//                     0: { fontStyle: 'bold', cellWidth: 60 },
+//                     1: { cellWidth: 80 }
+//                 },
+//                 margin: { left: 20 }
+//             });
+
+//             return doc.lastAutoTable.finalY + 15;
+//         };
+        
+//         const drawTableTitle = (doc, title, yPosition) => {
+//             doc.setFont('Roboto', 'bold'); // ✅ Sử dụng style 'bold' đã đăng ký
+//             doc.setFontSize(14);
+//             doc.text(title, 20, yPosition);
+//             return yPosition + 10;
+//         };
+
+//         const createDetailTable = (doc, detailedRecords, yPosition, pageHeight) => {
+//             if (yPosition > pageHeight - 100) { doc.addPage(); yPosition = 20; }
+//             yPosition = drawTableTitle(doc, 'CHI TIẾT CHẤM CÔNG THEO NGÀY', yPosition);
+            
+//             const detailTableData = detailedRecords.map((record, index) => [/*...*/]); // (Giữ nguyên map data)
+            
+//             autoTable(doc, {
+//                 startY: yPosition,
+//                 head: [['STT', 'Mã NV', 'Ngày', 'Giờ vào', 'Giờ ra', 'Tổng giờ', 'Lương/giờ', 'Tổng lương']],
+//                 body: detailTableData,
+//                 theme: 'striped',
+//                 styles: { font: 'Roboto', fontStyle: 'normal', fontSize: 8, cellPadding: 2 },
+//                 headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [46, 204, 113], textColor: 255, fontSize: 9 },
+//                 columnStyles: {
+//                     0: { cellWidth: 15, halign: 'center' }, 1: { cellWidth: 25 }, 2: { cellWidth: 25 },
+//                     3: { cellWidth: 20, halign: 'center' }, 4: { cellWidth: 20, halign: 'center' },
+//                     5: { cellWidth: 20, halign: 'center' }, 6: { cellWidth: 25, halign: 'right' },
+//                     7: { cellWidth: 30, halign: 'right' }
+//                 },
+//                 margin: { left: 20, right: 20 }
+//             });
+
+//             return doc.lastAutoTable.finalY + 15;
+//         };
+
+//         const createComparisonTable = (doc, comparisonData, yPosition, pageHeight) => {
+//             if (yPosition > pageHeight - 80) { doc.addPage(); yPosition = 20; }
+//             yPosition = drawTableTitle(doc, 'SO SÁNH KẾ HOẠCH VS THỰC TẾ', yPosition);
+              
+//             const comparisonTableData = comparisonData.map(day => [/*...*/]); // (Giữ nguyên map data)
+            
+//             autoTable(doc, {
+//                 startY: yPosition,
+//                 head: [['Ngày', 'Thứ', 'KH Phê duyệt', 'Thực tế', 'Chênh lệch', 'Tỷ lệ (%)']],
+//                 body: comparisonTableData,
+//                 theme: 'striped',
+//                 styles: { font: 'Roboto', fontStyle: 'normal', fontSize: 9, cellPadding: 3 },
+//                 headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [231, 76, 60], textColor: 255 },
+//                 columnStyles: {
+//                     0: { cellWidth: 30 }, 1: { cellWidth: 25 },
+//                     2: { cellWidth: 30, halign: 'center' }, 3: { cellWidth: 25, halign: 'center' },
+//                     4: { cellWidth: 25, halign: 'center' }, 5: { cellWidth: 25, halign: 'center' }
+//                 },
+//                 margin: { left: 20 }
+//             });
+            
+//             return doc.lastAutoTable.finalY + 15;
+//         };
+        
+//         const addFooter = (doc, pageWidth, pageHeight) => {
+//             const totalPages = doc.internal.getNumberOfPages();
+//             for (let i = 1; i <= totalPages; i++) {
+//                 doc.setPage(i);
+//                 doc.setFont('Roboto', 'normal'); // ✅ Đảm bảo footer dùng font và style đúng
+//                 doc.setFontSize(8);
+//                 doc.setTextColor(128, 128, 128);
+//                 doc.text(
+//                     `Tạo lúc: ${new Date().toLocaleString('vi-VN')} | Trang ${i}/${totalPages}`,
+//                     pageWidth - 20, pageHeight - 10, { align: 'right' }
+//                 );
+//             }
+//         };
+
+//         // ==================================================================
+//         // BƯỚC 5: TẠO NỘI DUNG PDF
+//         // ==================================================================
+        
+//         // Header chính
+//         doc.setFont('Roboto', 'bold'); // ✅ Sử dụng font 'Roboto' với style 'bold' một cách tường minh
+//         doc.setFontSize(20);
+//         doc.setTextColor(40, 40, 40);
+//         doc.text('BÁO CÁO CHI TIẾT CHẤM CÔNG', pageWidth / 2, 20, { align: 'center' });
+        
+//         // Tạo các bảng
+//         yPosition = createInfoTable(doc, request, detailedRecords, yPosition);
+//         if (detailedRecords.length > 0) { yPosition = createDetailTable(doc, detailedRecords, yPosition, pageHeight); }
+//         if (comparisonData.length > 0) { yPosition = createComparisonTable(doc, comparisonData, yPosition, pageHeight); }
+        
+//         // Thêm footer
+//         addFooter(doc, pageWidth, pageHeight);
+
+//         // ==================================================================
+//         // BƯỚC 6: LƯU FILE
+//         // ==================================================================
+//         const fileName = `bao_cao_${request?.requestNo || 'unknown'}_${new Date().toISOString().split('T')[0]}.pdf`;
+//         doc.save(fileName);
+
+//         showNotification(`Đã xuất báo cáo PDF: ${fileName}`, 'success');
+
+//     } catch (error) {
+//         console.error('Lỗi khi xuất PDF:', error);
+//         showNotification(`Lỗi xuất PDF: ${error.message}`, 'error');
+//     } finally {
+//         setLoadingRecruitment(false);
+//     }
+// };
+
+
+
+  // const exportToPDF = async (request) => {
+  //     try {
+  //         setLoadingRecruitment(true);
+  //         showNotification('Đang chuẩn bị báo cáo PDF...', 'info');
+
+  //         // ==================================================================
+  //         // BƯỚC 1: LẤY DỮ LIỆU (giữ nguyên)
+  //         // ==================================================================
+  //         const detailResponse = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
+  //         const detailedRecords = Array.isArray(detailResponse?.data?.records) ? detailResponse.data.records : [];
+  //         if (!detailResponse?.success) {
+  //             showNotification('Không thể tải dữ liệu chi tiết.', 'warning');
+  //             return;
+  //         }
+          
+  //         const comparisonResponse = await ApiClient.get(`/api/recruitment/daily-comparison/${request.requestNo}`);
+  //         const comparisonData = Array.isArray(comparisonResponse?.data?.dailyComparison) ? comparisonResponse.data.dailyComparison : [];
+
+  //         // ==================================================================
+  //         // BƯỚC 2: IMPORT THƯ VIỆN & SETUP FONT
+  //         // ==================================================================
+  //         const { default: jsPDF } = await import('jspdf');
+  //         const { default: autoTable } = await import('jspdf-autotable');
+
+  //         const doc = new jsPDF('l', 'mm', 'a4');
+  //         const pageWidth = doc.internal.pageSize.getWidth();
+  //         const pageHeight = doc.internal.pageSize.getHeight();
+  //         let yPosition = 35;
+          
+  //         // ✅ BƯỚC 3: TẢI VÀ THIẾT LẬP FONT ROBOTO
+  //         const fontResponse = await fetch('/fonts/Roboto-Regular.ttf');
+  //         if (!fontResponse.ok) {
+  //             throw new Error('Không thể tải file font. Hãy chắc chắn file tồn tại trong thư mục public/fonts/');
+  //         }
+  //         const fontBlob = await fontResponse.blob();
+  //         const fontBase64 = await new Promise((resolve, reject) => {
+  //             const reader = new FileReader();
+  //             reader.onloadend = () => resolve(reader.result.split(',')[1]);
+  //             reader.onerror = reject;
+  //             reader.readAsDataURL(fontBlob);
+  //         });
+
+  //         // Add font to jsPDF
+  //         doc.addFileToVFS('Roboto-Regular.ttf', fontBase64);
+  //         doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+          
+  //         // ✅ QUAN TRỌNG: Đặt font làm mặc định cho toàn bộ tài liệu
+  //         doc.setFont('Roboto', 'normal');
+
+  //         // ==================================================================
+  //         // BƯỚC 4: CÁC HÀM HELPER (đã fix font)
+  //         // ==================================================================
+          
+  //         // ✅ Helper function để đảm bảo font consistency
+  //         const getTableStyles = (fontSize = 10) => ({
+  //             styles: { 
+  //                 fontSize, 
+  //                 cellPadding: 3, 
+  //                 font: 'Roboto',
+  //                 fontStyle: 'normal'
+  //             },
+  //             headStyles: { 
+  //                 fillColor: [41, 128, 185], 
+  //                 textColor: 255, 
+  //                 fontStyle: 'bold',
+  //                 font: 'Roboto'
+  //             }
+  //         });
+
+  //         const createInfoTable = (doc, request, detailedRecords, yPosition) => {
+  //             const infoData = [
+  //                 ['Request No:', request?.requestNo || 'N/A'],
+  //                 ['Phòng ban:', request?.department || 'N/A'],
+  //                 ['Thời gian kế hoạch:', `${request?.fromDate || 'N/A'} - ${request?.toDate || 'N/A'}`],
+  //                 ['Tổng bản ghi chấm công:', detailedRecords.length.toString()],
+  //                 ['Tổng lương:', `${detailedRecords.reduce((sum, record) => sum + (record?.totalSalary || 0), 0).toLocaleString('vi-VN')} VNĐ`],
+  //                 ['Trạng thái:', request?.status || 'N/A']
+  //             ];
+
+  //             autoTable(doc, {
+  //                 startY: yPosition,
+  //                 head: [['Thông tin', 'Giá trị']],
+  //                 body: infoData,
+  //                 theme: 'grid',
+  //                 ...getTableStyles(10), // ✅ Apply consistent font
+  //                 columnStyles: {
+  //                     0: { fontStyle: 'bold', cellWidth: 60, font: 'Roboto' },
+  //                     1: { cellWidth: 80, font: 'Roboto' }
+  //                 },
+  //                 margin: { left: 20 }
+  //             });
+
+  //             return doc.lastAutoTable.finalY + 15;
+  //         };
+
+  //         const createDetailTable = (doc, detailedRecords, yPosition, pageHeight) => {
+  //             if (yPosition > pageHeight - 100) { 
+  //                 doc.addPage(); 
+  //                 yPosition = 20; 
+  //             }
+              
+  //             // ✅ Đảm bảo font header
+  //             doc.setFont('Roboto', 'bold');
+  //             doc.setFontSize(14);
+  //             doc.text('CHI TIẾT CHẤM CÔNG THEO NGÀY', 20, yPosition);
+  //             yPosition += 10;
+              
+  //             const detailTableData = detailedRecords.map((record, index) => [
+  //                 (index + 1).toString(),
+  //                 record?.employeeId || 'N/A',
+  //                 typeof record?.workDate === 'number' ? formatDateTimeForCSV(record.workDate) : (record?.workDate || 'N/A'),
+  //                 typeof record?.checkInTime === 'number' ? formatTimeForCSV(record.checkInTime) : (record?.checkInTime || 'N/A'),
+  //                 typeof record?.checkOutTime === 'number' ? formatTimeForCSV(record.checkOutTime) : (record?.checkOutTime || 'N/A'),
+  //                 (record?.totalHours || 0).toString(),
+  //                 (record?.hourlyRate || 0).toLocaleString('vi-VN'),
+  //                 (record?.totalSalary || 0).toLocaleString('vi-VN')
+  //             ]);
+
+  //             autoTable(doc, {
+  //                 startY: yPosition,
+  //                 head: [['STT', 'Mã NV', 'Ngày', 'Giờ vào', 'Giờ ra', 'Tổng giờ', 'Lương/giờ', 'Tổng lương']],
+  //                 body: detailTableData,
+  //                 theme: 'striped',
+  //                 didParseCell: function(data) {
+  //                     data.cell.styles.font = 'Roboto';
+  //                     data.cell.styles.fontStyle = 'normal';
+  //                 },
+  //                 // ✅ QUAN TRỌNG: Thêm font specification
+  //                 styles: { 
+  //                     fontSize: 8, 
+  //                     cellPadding: 2, 
+  //                     font: 'Roboto'
+  //                 },
+  //                 headStyles: { 
+  //                     fillColor: [46, 204, 113], 
+  //                     textColor: 255, 
+  //                     fontStyle: 'bold', 
+  //                     fontSize: 9,
+  //                     font: 'Roboto'
+  //                 },
+  //                 // ✅ Đảm bảo tất cả column đều có font
+  //                 columnStyles: {
+  //                     0: { cellWidth: 15, halign: 'center', font: 'Roboto' },
+  //                     1: { cellWidth: 25, font: 'Roboto' }, 
+  //                     2: { cellWidth: 25, font: 'Roboto' },
+  //                     3: { cellWidth: 20, halign: 'center', font: 'Roboto' }, 
+  //                     4: { cellWidth: 20, halign: 'center', font: 'Roboto' },
+  //                     5: { cellWidth: 20, halign: 'center', font: 'Roboto' }, 
+  //                     6: { cellWidth: 25, halign: 'right', font: 'Roboto' },
+  //                     7: { cellWidth: 30, halign: 'right', font: 'Roboto' }
+  //                 },
+  //                 margin: { left: 20, right: 20 }
+  //             });
+
+  //             return doc.lastAutoTable.finalY + 15;
+  //         };
+
+  //         const createComparisonTable = (doc, comparisonData, yPosition, pageHeight) => {
+  //             if (yPosition > pageHeight - 80) { 
+  //                 doc.addPage(); 
+  //                 yPosition = 20; 
+  //             }
+              
+  //             doc.setFont('Roboto', 'bold');
+  //             doc.setFontSize(14);
+  //             doc.text('SO SÁNH KẾ HOẠCH VS THỰC TẾ', 20, yPosition);
+  //             yPosition += 10;
+              
+  //             const comparisonTableData = comparisonData.map(day => [
+  //                 day?.date || 'N/A',
+  //                 day?.dayName || '',
+  //                 (day?.approvedCount ?? 0).toString(),
+  //                 (day?.actualCount ?? 0).toString(),
+  //                 (day?.variance ?? 0).toString(),
+  //                 `${(parseFloat(day?.utilizationRate || 0)).toFixed(1)}%`
+  //             ]);
+
+  //             autoTable(doc, {
+  //                 startY: yPosition,
+  //                 head: [['Ngày', 'Thứ', 'KH Phê duyệt', 'Thực tế', 'Chênh lệch', 'Tỷ lệ (%)']],
+  //                 body: comparisonTableData,
+  //                 theme: 'striped',
+  //                 // ✅ QUAN TRỌNG: Áp dụng font cho tất cả
+  //                 styles: { 
+  //                     fontSize: 9, 
+  //                     cellPadding: 3, 
+  //                     font: 'Roboto' 
+  //                 },
+  //                 headStyles: { 
+  //                     fillColor: [231, 76, 60], 
+  //                     textColor: 255, 
+  //                     fontStyle: 'bold',
+  //                     font: 'Roboto'
+  //                 },
+  //                 columnStyles: {
+  //                     0: { cellWidth: 30, font: 'Roboto' }, 
+  //                     1: { cellWidth: 25, font: 'Roboto' },
+  //                     2: { cellWidth: 30, halign: 'center', font: 'Roboto' }, 
+  //                     3: { cellWidth: 25, halign: 'center', font: 'Roboto' },
+  //                     4: { cellWidth: 25, halign: 'center', font: 'Roboto' }, 
+  //                     5: { cellWidth: 25, halign: 'center', font: 'Roboto' }
+  //                 },
+  //                 margin: { left: 20 }
+  //             });
+              
+  //             return doc.lastAutoTable.finalY + 15;
+  //         };
+          
+  //         const addFooter = (doc, pageWidth, pageHeight) => {
+  //             const totalPages = doc.internal.getNumberOfPages();
+  //             for (let i = 1; i <= totalPages; i++) {
+  //                 doc.setPage(i);
+  //                 doc.setFont('Roboto', 'normal'); // ✅ Đảm bảo footer cũng dùng Roboto
+  //                 doc.setFontSize(8);
+  //                 doc.setTextColor(128, 128, 128);
+  //                 doc.text(
+  //                     `Tạo lúc: ${new Date().toLocaleString('vi-VN')} | Trang ${i}/${totalPages}`,
+  //                     pageWidth - 20,
+  //                     pageHeight - 10,
+  //                     { align: 'right' }
+  //                 );
+  //             }
+  //         };
+
+  //         // ==================================================================
+  //         // BƯỚC 5: TẠO NỘI DUNG PDF
+  //         // ==================================================================
+          
+  //         // Header chính
+  //         doc.setFont('Roboto', 'bold');
+  //         doc.setFontSize(20);
+  //         doc.setTextColor(40, 40, 40);
+  //         doc.text('BÁO CÁO CHI TIẾT CHẤM CÔNG', pageWidth / 2, 20, { align: 'center' });
+          
+  //         // Tạo các bảng
+  //         yPosition = createInfoTable(doc, request, detailedRecords, yPosition);
+          
+  //         if (detailedRecords.length > 0) { 
+  //             yPosition = createDetailTable(doc, detailedRecords, yPosition, pageHeight); 
+  //         }
+          
+  //         if (comparisonData.length > 0) { 
+  //             yPosition = createComparisonTable(doc, comparisonData, yPosition, pageHeight); 
+  //         }
+          
+  //         addFooter(doc, pageWidth, pageHeight);
+
+  //         // ==================================================================
+  //         // BƯỚC 6: LƯU FILE
+  //         // ==================================================================
+  //         const fileName = `bao_cao_${request?.requestNo || 'unknown'}_${new Date().toISOString().split('T')[0]}.pdf`;
+  //         doc.save(fileName);
+
+  //         showNotification(`Đã xuất báo cáo PDF: ${fileName}`, 'success');
+
+  //     } catch (error) {
+  //         console.error('Lỗi khi xuất PDF:', error);
+  //         showNotification(`Lỗi xuất PDF: ${error.message}`, 'error');
+  //     } finally {
+  //         setLoadingRecruitment(false);
+  //     }
+  // };
+
 
   const exportToExcel = async (request) => {
       try {
@@ -11494,98 +12567,6 @@ const AttendanceLogsPage = () => {
           setLoadingRecruitment(false);
       }
   };
-
-
-
-
-  // const exportToExcel = async (request) => {
-  //     try {
-  //         setLoadingRecruitment(true);
-  //         showNotification('Đang tải chi tiết dữ liệu...', 'info');
-          
-  //         const response = await ApiClient.get(`/api/recruitment/detailed-hours/${request.requestNo}`);
-          
-  //         if (!response.success || !response.data.records.length) {
-  //             showNotification('Không có dữ liệu chi tiết để xuất', 'warning');
-  //             return;
-  //         }
-          
-  //         const detailedRecords = response.data.records;
-          
-  //         // ✅ SỬA: Áp dụng conversion cho các trường thời gian
-  //         const worksheetData = [
-  //             ['STT', 'Mã nhân viên', 'Ngày chấm công', 'Thời gian vào', 'Thời gian ra', 'Tổng giờ làm', 'Lương/giờ (VNĐ)', 'Tổng lương (VNĐ)'],
-  //             ...detailedRecords.map((record, index) => [
-  //                 index + 1,
-  //                 record.employeeId || 'N/A',
-  //                 // ✅ CHUYỂN ĐỔI: workDate nếu là serial number
-  //                 typeof record.workDate === 'number' ? 
-  //                     formatDateTimeForCSV(record.workDate) : 
-  //                     record.workDate || 'N/A',
-  //                 // ✅ CHUYỂN ĐỔI: checkInTime nếu là serial number
-  //                 typeof record.checkInTime === 'number' ? 
-  //                     formatTimeForCSV(record.checkInTime) : 
-  //                     record.checkInTime || 'N/A',
-  //                 // ✅ CHUYỂN ĐỔI: checkOutTime nếu là serial number
-  //                 typeof record.checkOutTime === 'number' ? 
-  //                     formatTimeForCSV(record.checkOutTime) : 
-  //                     record.checkOutTime || 'N/A',
-  //                 record.totalHours || 0,
-  //                 record.hourlyRate || 0,
-  //                 record.totalSalary || 0 
-  //             ])
-  //         ];
-
-  //         // Phần còn lại giữ nguyên
-  //         const totalSalary = detailedRecords.reduce((sum, record) => sum + (record.totalSalary || 0), 0);
-          
-  //         const summaryData = [
-  //             [],
-  //             ['THÔNG TIN TỔNG HỢP'],
-  //             ['Request No:', request.requestNo],
-  //             ['Phòng ban:', request.department],
-  //             ['Thời gian:', `${request.fromDate || 'N/A'} - ${request.toDate || 'N/A'}`],
-  //             ['Tổng bản ghi:', detailedRecords.length],
-  //             ['Tổng lương:', `${totalSalary.toLocaleString('vi-VN')} VNĐ`],
-  //             ['Trạng thái:', request.status],
-  //             [],
-  //             ['CHI TIẾT CHẤM CÔNG THEO NGÀY'],
-  //             ...worksheetData
-  //         ];
-
-  //         const csvContent = summaryData.map(row => 
-  //             row.map(cell => {
-  //                 const cellStr = String(cell || '');
-  //                 if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-  //                     return `"${cellStr.replace(/"/g, '""')}"`;
-  //                 }
-  //                 return cellStr;
-  //             }).join(',')
-  //         ).join('\n');
-
-  //         const BOM = '\uFEFF';
-  //         const blob = new Blob([BOM + csvContent], { 
-  //             type: 'text/csv;charset=utf-8;' 
-  //         });
-
-  //         const link = document.createElement('a');
-  //         link.href = URL.createObjectURL(blob);
-  //         link.download = `chi_tiet_cham_cong_${request.requestNo}_${new Date().toISOString().split('T')[0]}.csv`;
-          
-  //         document.body.appendChild(link);
-  //         link.click();
-  //         document.body.removeChild(link);
-  //         URL.revokeObjectURL(link.href);
-          
-  //         showNotification(`Đã xuất file chi tiết cho ${request.requestNo}`, 'success');
-          
-  //     } catch (error) {
-  //         console.error('Error exporting detailed Excel:', error);
-  //         showNotification('Lỗi khi xuất file Excel chi tiết', 'error');
-  //     } finally {
-  //         setLoadingRecruitment(false);
-  //     }
-  // };
 
 
   const totalEmployees = Array.isArray(employees) ? employees.length : 0;
@@ -11834,11 +12815,11 @@ const AttendanceLogsPage = () => {
                               <td>
                                 <button
                                   className="btn btn-sm btn-success"
-                                  onClick={() => exportToExcel(request)}
-                                  title="Xuất Excel chi tiết"
+                                  onClick={() => exportToPDF(request)}
+                                  title="Xuất PDF chi tiết"
                                   disabled={!request.employees || request.employees.length === 0}
                                 >
-                                  <i className="fas fa-file-excel"></i>
+                                  <i className="fas fa-file-pdf"></i>
                                 </button>
                               </td>
                             </tr>
@@ -13337,7 +14318,7 @@ export const formatTimeForCSV = (serialNumber) => {
 3. THỐNG KÊ TỔNG QUAN:
 ----------------------------------------
 📊 Tổng số file đã phân tích: 97
-📊 Tổng số dòng code (ước tính): 25728
+📊 Tổng số dòng code (ước tính): 27689
 
 ================================================================================
 Báo cáo được tạo thành công!
