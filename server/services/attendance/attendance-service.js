@@ -2,7 +2,7 @@
 import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
-
+import TimezoneService from '../core/timezone-service.js'; // ✅ THÊM: Import TimezoneService
 
 /**
  * @class AttendanceService
@@ -19,7 +19,6 @@ class AttendanceService extends BaseService {
     async initializeService() {
         console.log('Initializing Attendance Service...');
     }
-
 
     // =================================================================
     //  PUBLIC API METHODS - CÁC HÀM CUNG CẤP RA BÊN NGOÀI
@@ -67,7 +66,6 @@ class AttendanceService extends BaseService {
             
             CacheService.set(cacheKey, logs, 300000); // Cache trong 5 phút
 
-
         } catch (error) {
             console.error('❌ Error fetching attendance logs:', error);
             logs = []; // Trả về mảng rỗng nếu có lỗi
@@ -75,7 +73,6 @@ class AttendanceService extends BaseService {
         
         return logs;
     }
-
 
     /** Thêm một bản ghi chấm công mới vào Lark Bitable.
      * @param {object} attendanceData - Dữ liệu chấm công cần thêm.
@@ -98,7 +95,6 @@ class AttendanceService extends BaseService {
             throw error;
         }
     }
-
 
     /**
      * Lấy và tổng hợp giờ làm cho tất cả nhân viên có phát sinh chấm công.
@@ -142,7 +138,6 @@ class AttendanceService extends BaseService {
     //  BUSINESS LOGIC & CALCULATIONS - LOGIC NGHIỆP VỤ & TÍNH TOÁN
     // =================================================================
 
-
     /**
      * Gom nhóm các bản ghi chấm công theo mã nhân viên và ngày.
      * @param {Array<object>} logs - Mảng các bản ghi chấm công.
@@ -174,7 +169,6 @@ class AttendanceService extends BaseService {
         return grouped;
     }
 
-
     /**
      * Hàm điều phối: Tính toán giờ làm trong một ngày dựa trên chức vụ của nhân viên.
      * @param {string} employeeId - Mã nhân viên.
@@ -193,7 +187,6 @@ class AttendanceService extends BaseService {
 
         return this.calculateSimpleHours(dayLogs)
     }
-
 
     /**
      * Logic tính giờ mặc định: lấy check-in sớm nhất và check-out muộn nhất trong ngày.
@@ -223,17 +216,22 @@ class AttendanceService extends BaseService {
             };
         }
         
-        // ✅ LẤY CHECK IN SỚM NHẤT VÀ CHECK OUT MUỘN NHẤT
-        const earliestCheckin = checkinLogs.reduce((earliest, current) => 
-            new Date(current.timestamp) < new Date(earliest.timestamp) ? current : earliest
-        );
+        // ✅ SỬA: Sử dụng TimezoneService để chuyển đổi timestamp
+        const earliestCheckin = checkinLogs.reduce((earliest, current) => {
+            const earliestTime = TimezoneService.toVietnamTime(earliest.timestamp);
+            const currentTime = TimezoneService.toVietnamTime(current.timestamp);
+            return currentTime < earliestTime ? current : earliest;
+        });
         
-        const latestCheckout = checkoutLogs.reduce((latest, current) => 
-            new Date(current.timestamp) > new Date(latest.timestamp) ? current : latest
-        );
+        const latestCheckout = checkoutLogs.reduce((latest, current) => {
+            const latestTime = TimezoneService.toVietnamTime(latest.timestamp);
+            const currentTime = TimezoneService.toVietnamTime(current.timestamp);
+            return currentTime > latestTime ? current : latest;
+        });
         
-        const checkinTime = new Date(earliestCheckin.timestamp);
-        const checkoutTime = new Date(latestCheckout.timestamp);
+        // ✅ SỬA: Sử dụng TimezoneService để chuyển đổi timestamp
+        const checkinTime = TimezoneService.toVietnamTime(earliestCheckin.timestamp);
+        const checkoutTime = TimezoneService.toVietnamTime(latestCheckout.timestamp);
         const diffHours = (checkoutTime - checkinTime) / (1000 * 60 * 60);
         
         // ✅ THÊM CẢNH BÁO NẾU CÓ NHIỀU LOGS
@@ -247,7 +245,6 @@ class AttendanceService extends BaseService {
             position: dayLogs[0]?.position || 'N/A'
         };
     }
-
 
     /**
      * Logic tính giờ cho Mascot: yêu cầu chấm công 4 lần/ngày (vào/ra ca sáng, vào/ra ca chiều).
@@ -267,15 +264,15 @@ class AttendanceService extends BaseService {
             };
         }
 
-        // Chia ca theo 13:00
+        // ✅ SỬA: Sử dụng TimezoneService để chia ca theo 13:00
         const morningLogs = dayLogs.filter(log => {
-            const hour = new Date(log.timestamp).getHours();
-            return hour < 13;
+            const vietnamTime = TimezoneService.toVietnamTime(log.timestamp);
+            return vietnamTime.getUTCHours() < 13;
         });
 
         const afternoonLogs = dayLogs.filter(log => {
-            const hour = new Date(log.timestamp).getHours();
-            return hour >= 13;
+            const vietnamTime = TimezoneService.toVietnamTime(log.timestamp);
+            return vietnamTime.getUTCHours() >= 13;
         });
 
         const morningResult = this.calculateShiftHours(morningLogs);
@@ -291,7 +288,6 @@ class AttendanceService extends BaseService {
             position: 'Nhân viên Mascot'
         };
     }
-
 
     /**
      * Logic tính giờ cho nhân viên thời vụ: yêu cầu đúng 1 check-in và 1 check-out.
@@ -313,8 +309,9 @@ class AttendanceService extends BaseService {
             };
         }
 
-        const checkinTime = new Date(checkinLog.timestamp);
-        const checkoutTime = new Date(checkoutLog.timestamp);
+        // ✅ SỬA: Sử dụng TimezoneService để chuyển đổi timestamp
+        const checkinTime = TimezoneService.toVietnamTime(checkinLog.timestamp);
+        const checkoutTime = TimezoneService.toVietnamTime(checkoutLog.timestamp);
         const diffHours = (checkoutTime - checkinTime) / (1000 * 60 * 60);
 
         return {
@@ -323,7 +320,6 @@ class AttendanceService extends BaseService {
             position: dayLogs[0]?.position || 'N/A'
         };
     }
-
 
     /**
      * Tính toán giờ làm cho một ca đơn lẻ (gồm 1 check-in và 1 check-out) (Dùng cho masscot).
@@ -344,13 +340,16 @@ class AttendanceService extends BaseService {
             };
         }
 
-        const diffHours = (new Date(checkout.timestamp) - new Date(checkin.timestamp)) / (1000 * 60 * 60);
+        // ✅ SỬA: Sử dụng TimezoneService để chuyển đổi timestamp
+        const checkinTime = TimezoneService.toVietnamTime(checkin.timestamp);
+        const checkoutTime = TimezoneService.toVietnamTime(checkout.timestamp);
+        const diffHours = (checkoutTime - checkinTime) / (1000 * 60 * 60);
+        
         return {
             hours: Math.max(0, diffHours),
             warnings: []
         };
     }
-
 
     // =================================================================
     //  DATA TRANSFORMATION & FILTERING - CHUYỂN ĐỔI & LỌC DỮ LIỆU
@@ -373,10 +372,9 @@ class AttendanceService extends BaseService {
                 employeeId = employeeIdField;
             }
 
-            // ✅ SỬA: Sử dụng timestamp đã convert để extract date và time
+            // ✅ SỬA: Sử dụng TimezoneService để convert timestamp
             const convertedTimestamp = this.convertUnixToDateTime(record.fields['Thời gian chấm công']);
-            const dateObj = new Date(convertedTimestamp);
-            
+            const vietnamTime = TimezoneService.toVietnamTime(convertedTimestamp);
             
             return {
                 id: record.record_id,
@@ -384,14 +382,13 @@ class AttendanceService extends BaseService {
                 type: record.fields['Phân loại'] || '',
                 position: record.fields['Vị trí'] || '',
                 timestamp: convertedTimestamp,
-                date: dateObj.toISOString().split('T')[0],
-                time: dateObj.toTimeString().slice(0, 5),
+                date: TimezoneService.larkTimestampToDateString(new Date(convertedTimestamp).getTime()) || vietnamTime.toISOString().split('T')[0],
+                time: TimezoneService.formatTime(convertedTimestamp),
                 notes: record.fields['Ghi chú'] || '',
-                createdAt: record.fields['Created At'] || new Date().toISOString()
+                createdAt: record.fields['Created At'] || TimezoneService.getCurrentVietnamDate().toISOString()
             };
         });
     }
-
 
     /**
      * Chuyển đổi dữ liệu từ ứng dụng sang định dạng mà API của Lark Bitable yêu cầu.
@@ -399,16 +396,25 @@ class AttendanceService extends BaseService {
      * @returns {object} - Đối tượng `fields` để gửi cho Lark.
      */
     transformAttendanceForLark(attendanceData) {
+        // ✅ SỬA: Sử dụng TimezoneService để convert timestamp
+        let timestamp;
+        if (attendanceData.timestamp) {
+            const vietnamTime = TimezoneService.toVietnamTime(attendanceData.timestamp);
+            timestamp = Math.floor(vietnamTime.getTime() / 1000);
+        } else {
+            const currentVietnamTime = TimezoneService.getCurrentVietnamDate();
+            timestamp = Math.floor(currentVietnamTime.getTime() / 1000);
+        }
+
         return {
             'Mã nhân viên': attendanceData.employeeId,
             'Phân loại': attendanceData.type,
             'Vị trí': attendanceData.position,
-            'Thời gian chấm công': Math.floor(new Date(attendanceData.timestamp).getTime() / 1000),
+            'Thời gian chấm công': timestamp,
             'Ghi chú': attendanceData.notes || '',
-            'Created At': new Date().toISOString()
+            'Created At': TimezoneService.getCurrentVietnamDate().toISOString()
         };
     }
-
 
     /**
      * Lọc một danh sách các bản ghi chấm công theo khoảng ngày.
@@ -419,23 +425,28 @@ class AttendanceService extends BaseService {
      */
     filterByDateRange(logs, dateFrom, dateTo) {
         return logs.filter(log => {
-            const logDate = new Date(log.date);
-            const fromDate = dateFrom ? new Date(dateFrom) : null;
-            const toDate = dateTo ? new Date(dateTo) : null;
+            // ✅ SỬA: Sử dụng TimezoneService để so sánh ngày
+            if (!TimezoneService.isValidDate(log.date)) return false;
             
-            if (fromDate && logDate < fromDate) return false;
-            if (toDate && logDate > toDate) return false;
+            const logVietnamTime = TimezoneService.toVietnamTime(log.date);
+            
+            if (dateFrom && TimezoneService.isValidDate(dateFrom)) {
+                const fromVietnamTime = TimezoneService.toVietnamTime(dateFrom);
+                if (TimezoneService.isDateBefore(logVietnamTime, fromVietnamTime)) return false;
+            }
+            
+            if (dateTo && TimezoneService.isValidDate(dateTo)) {
+                const toVietnamTime = TimezoneService.toVietnamTime(dateTo);
+                if (TimezoneService.isDateAfter(logVietnamTime, toVietnamTime)) return false;
+            }
             
             return true;
         });
     }
 
-
-
     // =================================================================
     //  UTILITY HELPERS - CÁC HÀM TIỆN ÍCH
     // =================================================================
-
 
     /**
      * Trích xuất mã nhân viên từ trường dữ liệu của Lark (có thể là string hoặc array).
@@ -465,32 +476,31 @@ class AttendanceService extends BaseService {
         return '';
     }
 
-
     /**
      * Chuyển đổi timestamp từ Lark (có thể là Unix milliseconds hoặc ISO string) sang định dạng ISO string.
      * @param {number|string} timestampValue - Giá trị timestamp từ Lark.
      * @returns {string} - Chuỗi ISO 8601 (ví dụ: "2025-08-08T10:00:00.000Z").
      */
     convertUnixToDateTime(unixTimestamp) {
-        if (!unixTimestamp) return '';
+        if (!unixTimestamp) return TimezoneService.getCurrentVietnamDate().toISOString();
         
-        // Nếu timestamp đã là ISO string
+        // ✅ SỬA: Sử dụng TimezoneService để validate và convert
         if (typeof unixTimestamp === 'string' && unixTimestamp.includes('T')) {
-            const date = new Date(unixTimestamp);
-            if (date.getFullYear() > 2000 && date.getFullYear() < 2100) {
-                return unixTimestamp;
+            if (TimezoneService.isValidDate(unixTimestamp)) {
+                return TimezoneService.toVietnamTime(unixTimestamp).toISOString();
             }
         }
         
-        // ✅ QUAN TRỌNG: Timestamp từ Lark đã là milliseconds, không nhân 1000
+        // ✅ SỬA: Sử dụng TimezoneService để convert timestamp
         if (typeof unixTimestamp === 'number') {
-            return new Date(unixTimestamp).toISOString();
+            if (TimezoneService.isValidDate(new Date(unixTimestamp))) {
+                return TimezoneService.toVietnamTime(unixTimestamp).toISOString();
+            }
         }
         
         console.warn('⚠️ Invalid timestamp format:', unixTimestamp);
-        return new Date().toISOString();
+        return TimezoneService.getCurrentVietnamDate().toISOString();
     }
-
 
     /**
      * Định dạng tổng số giờ sang chuỗi hiển thị "X giờ Y phút".
@@ -511,8 +521,6 @@ class AttendanceService extends BaseService {
             return `${hours} giờ ${minutes} phút`;
         }
     }
-
 }
-
 
 export default AttendanceService;

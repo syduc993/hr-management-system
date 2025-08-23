@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// SỬA ĐOẠN NÀY: Import đúng hàm getApprovedRecruitmentRequests từ services
 import { getApprovedRecruitmentRequests } from '../../services/employee.js';
 import { useNotification } from '../../hooks/useNotification';
 import Loading from '../common/Loading';
@@ -21,7 +20,6 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
   const loadRecruitmentRequests = async () => {
     try {
       setLoading(true);
-      // SỬA: Gọi API đúng hàm mới
       const data = await getApprovedRecruitmentRequests();
       setRecruitmentRequests(data || []);
     } catch (err) {
@@ -66,12 +64,6 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
     item.position?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  //const handleItemSelect = item => {
-  //  setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : item);
-  //};
-
-  // Trong hàm handleItemSelect, thêm logic xử lý min/max
-
   const handleItemSelect = item => {
     console.log('🔍 User clicked item:', item);
     
@@ -103,16 +95,22 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
     
     console.log('🔍 DEBUG: Min/max timestamps:', { minFromDate, maxToDate });
     
+    // ✅ SỬA HÀM formatTimestamp - THÊM TIMEZONE CORRECTION
     const formatTimestamp = (timestamp) => {
       if (!timestamp || typeof timestamp !== 'number') return null;
       
       try {
+        // ✅ Chuyển đổi từ timestamp thành Date với timezone Việt Nam (GMT+7)
         const date = new Date(timestamp);
         if (isNaN(date.getTime())) return null;
         
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
+        // ✅ Sử dụng toLocaleDateString với timezone Việt Nam
+        const vietnamDate = new Date(date.getTime() + (7 * 60 * 60 * 1000)); // Thêm 7 giờ cho GMT+7
+        
+        const day = String(vietnamDate.getUTCDate()).padStart(2, '0');
+        const month = String(vietnamDate.getUTCMonth() + 1).padStart(2, '0');
+        const year = vietnamDate.getUTCFullYear();
+        
         return `${day}/${month}/${year}`;
       } catch (error) {
         console.error('Error formatting timestamp:', error);
@@ -139,10 +137,6 @@ const RecruitmentModal = ({ isOpen, onClose, onRecruitmentSelected, selectedRecr
     
     setSelectedItem(selectedItem?.requestNo === item.requestNo ? null : mergedItem);
   };
-
-
-
-
 
   const handleConfirm = () => {
     if (!selectedItem) {

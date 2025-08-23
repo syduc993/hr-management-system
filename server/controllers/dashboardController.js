@@ -1,7 +1,7 @@
 // server/controllers/dashboardController.js
 import larkServiceManager from '../services/lark-service-manager.js';
 import { formatResponse } from '../services/utils/response-formatter.js';
-
+import TimezoneService from '../services/core/timezone-service.js';
 
 /**
  * Controller để lấy dữ liệu thống kê cho dashboard.
@@ -48,7 +48,8 @@ export const getDashboardStats = async (req, res) => {
         // --- Bắt đầu lấy thống kê chấm công ---
         try {
             const logs = await attendanceService.getAttendanceLogs();
-            const today = new Date().toISOString().split('T')[0];
+            //const today = new Date().toISOString().split('T')[0];
+            const today = TimezoneService.getCurrentDateString();
             attendanceStats = {
                 totalAttendanceLogs: logs.length,
                 todayLogs: logs.filter(log => log.date === today).length,

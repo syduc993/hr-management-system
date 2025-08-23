@@ -1,6 +1,3 @@
-// server/services/employees/work-history-service.js
-
-
 /**
  * @file Dịch vụ này chịu trách nhiệm quản lý tất cả các hoạt động liên quan đến
  * Lịch sử Công tác của Nhân viên (Work History).
@@ -9,43 +6,10 @@
  * Dịch vụ sử dụng cache để tối ưu hóa hiệu suất cho các hoạt động đọc dữ liệu.
  */
 
-
 import BaseService from '../core/base-service.js';
 import LarkClient from '../core/lark-client.js';
 import CacheService from '../core/cache-service.js';
-
-
-// =================================================================
-// HÀM TIỆN ÍCH ĐỘC LẬP (STANDALONE UTILITY FUNCTIONS)
-// =================================================================
-
-
-/**
- * Định dạng một giá trị ngày thành chuỗi 'DD/MM/YYYY'.
- * @param {Date|string|number} dateValue - Giá trị ngày cần định dạng.
- * @returns {string} Chuỗi ngày đã định dạng hoặc 'N/A' nếu không có giá trị, 'Ngày không hợp lệ' nếu sai định dạng.
- */
-const formatDate = (dateValue) => {
-    if (!dateValue) return 'N/A';
-    const date = new Date(dateValue);
-    if (isNaN(date.getTime())) return 'Ngày không hợp lệ';
-    
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-};
-
-
-// Hàm tiện ích để kiểm tra hai khoảng ngày có chồng chéo không
-const dateRangesOverlap = (start1, end1, start2, end2) => {
-    const s1 = new Date(start1);
-    const e1 = new Date(end1);
-    const s2 = new Date(start2);
-    const e2 = new Date(end2);
-    return s1 <= e2 && e1 >= s2;
-};
-
+import TimezoneService from '../core/timezone-service.js';
 
 // =================================================================
 // LỚP DỊCH VỤ (SERVICE CLASS)
@@ -59,7 +23,6 @@ class WorkHistoryService extends BaseService {
         this.salaryTableId = process.env.LARK_SALARY_TABLE_ID || 'tblLdJp61bLeK3MG';
     }
 
-
     async initializeService() {
         console.log('Initializing Work History Service...');
     }
@@ -68,61 +31,33 @@ class WorkHistoryService extends BaseService {
     // CÁC HÀM CÔNG KHAI - PUBLIC API (MAIN METHODS)
     // =================================================================
 
-
-    /**
-     * Lấy toàn bộ lịch sử công tác của nhân viên từ Lark Bitable.
-     * Hàm này sẽ thực hiện các bước sau:
-     * 1. Gọi API để lấy dữ liệu thô từ Lark.
-     * 2. Lấy thêm dữ liệu lương để làm giàu thông tin.
-     * 3. Biến đổi và kết hợp hai nguồn dữ liệu trên.
-     * 4. Lưu kết quả vào cache để tăng tốc cho các lần gọi sau.
-     * 5. Xử lý lỗi một cách an toàn.
-     *
-     * @returns {Promise<Array>} Một mảng chứa các đối tượng lịch sử công tác đã được xử lý,
-     *                            hoặc một mảng rỗng nếu có lỗi xảy ra.
-     */
     async getAllWorkHistory() {
-        // Định danh key cho việc cache dữ liệu. Giúp truy xuất và lưu trữ nhất quán.
         const cacheKey = 'work_history_all';
 
         try {
-            // Gọi API để lấy tất cả bản ghi lịch sử công tác từ Lark Bitable.
-            // `await` đảm bảo chương trình sẽ đợi cho đến khi có phản hồi từ server.
             const response = await LarkClient.getAllRecords(
                 `/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`
             );
 
-            // Lấy dữ liệu lương để kết hợp ở bước sau.
             const salaryData = await this.getSalaryData();
 
-            // Biến đổi dữ liệu thô từ Lark và kết hợp với dữ liệu lương.
             const history = this.transformWorkHistoryDataWithSalary(response.data?.items || [], salaryData);
             CacheService.set(cacheKey, history, 300000);
 
-            // Trả về danh sách lịch sử công tác đã xử lý.
             return history;
         } catch (error) {
             console.error('❌ Đã xảy ra lỗi khi lấy lịch sử công tác:', error);
-            // Trả về một mảng rỗng để đảm bảo các phần khác của ứng dụng không bị "crash" khi không nhận được dữ liệu.
             return [];
         }
     }
 
-
-    /**
-     * Lấy lịch sử công tác của một nhân viên cụ thể dựa vào mã nhân viên.
-     * @param {string} employeeId - Mã của nhân viên.
-     * @returns {Promise<Array<Object>>} Một mảng chứa lịch sử công tác của nhân viên đó.
-     */
     async getWorkHistoryByEmployee(employeeId) {
         try {
-            
             const response = await LarkClient.get(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records`, {
                 filter: `AND(CurrentValue.[Mã nhân viên] = "${employeeId}")`
             });
 
             const workHistoryData = response.data?.items || [];
-
             const salaryData = await this.getSalaryData();
 
             return this.transformWorkHistoryDataWithSalary(workHistoryData, salaryData);
@@ -132,12 +67,6 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-
-    /**
-     * Lấy một bản ghi lịch sử công tác cụ thể bằng ID của bản ghi (record_id).
-     * @param {string} id - ID của bản ghi trong Lark Bitable.
-     * @returns {Promise<Object|null>} Đối tượng lịch sử công tác hoặc null nếu không tìm thấy.
-     */
     async getWorkHistoryById(id) {
         try {
             console.log('🔍 WORK HISTORY SERVICE: Getting work history by ID:', id);
@@ -157,14 +86,6 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-
-        /**
-     * Thêm một bản ghi lịch sử công tác mới.
-     * @param {Object} workHistoryData - Dữ liệu về lịch sử công tác cần thêm.
-     * @param {Object} recruitmentService - Một instance của RecruitmentService để lấy thông tin đề xuất.
-     * @returns {Promise<Object>} Thông tin về bản ghi đã được tạo thành công.
-     * @throws {Error} Ném lỗi nếu dữ liệu không hợp lệ hoặc có lỗi từ API.
-     */
     async addWorkHistory(workHistoryData, recruitmentService) {
         try {
             const { employeeId, requestNo, fromDate, toDate, hourlyRate } = workHistoryData;
@@ -178,7 +99,6 @@ class WorkHistoryService extends BaseService {
             }
 
             this.validateWorkHistoryFields(workHistoryData, recruitmentDetails);
-            //await this.validateWorkHistoryDateOverlap(employeeId, requestNo, recruitmentService);
             await this.validateWorkHistoryDateOverlap(employeeId, workHistoryData, recruitmentService);
             const transformedData = this.transformWorkHistoryForLark(workHistoryData);
             
@@ -190,7 +110,6 @@ class WorkHistoryService extends BaseService {
 
             console.log('📥 WORK HISTORY SERVICE: Raw Lark response:', response);
 
-            // THÊM: Kiểm tra mã lỗi từ Lark API
             if (response.code !== 0) {
                 throw new Error(`Lỗi từ Lark API khi thêm: ${response.msg} (code: ${response.code})`);
             }
@@ -211,14 +130,6 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-
-    /**
-     * Cập nhật một bản ghi lịch sử công tác đã có.
-     * @param {string} id - ID của bản ghi cần cập nhật.
-     * @param {Object} workHistoryData - Dữ liệu mới để cập nhật.
-     * @returns {Promise<Object>} Thông tin về bản ghi đã được cập nhật.
-     * @throws {Error} Ném lỗi nếu không tìm thấy bản ghi hoặc có lỗi từ API.
-     */
     async updateWorkHistory(id, workHistoryData) {
         try {
             const { employeeId, requestNo, fromDate, toDate, hourlyRate } = workHistoryData;
@@ -234,7 +145,6 @@ class WorkHistoryService extends BaseService {
                 throw new Error('Mã nhân viên và Request No. là bắt buộc');
             }
 
-            // SỬA: Loại bỏ hoàn toàn việc ghi đè vào các trường hệ thống
             const transformedData = this.transformWorkHistoryForLark(workHistoryData);
             
             console.log('📤 WORK HISTORY SERVICE: Updating data in Lark:', transformedData);
@@ -245,15 +155,13 @@ class WorkHistoryService extends BaseService {
 
             console.log('📥 WORK HISTORY SERVICE: Update response:', response);
 
-            // THÊM: Kiểm tra mã lỗi từ Lark API
             if (response.code !== 0) {
                 throw new Error(`Lỗi từ Lark API khi cập nhật: ${response.msg} (code: ${response.code})`);
             }
 
-            // Xóa cache để đảm bảo dữ liệu được làm mới
             CacheService.delete('work_history_all');
             CacheService.delete('salary_data_all');
-            CacheService.clear(); // Xóa toàn bộ cache để an toàn
+            CacheService.clear();
 
             return {
                 success: true,
@@ -269,12 +177,6 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-    /**
-     * Xóa một bản ghi lịch sử công tác bằng ID.
-     * @param {string} id - ID của bản ghi cần xóa.
-     * @returns {Promise<Object>} Thông báo thành công.
-     * @throws {Error} Ném lỗi nếu không tìm thấy bản ghi hoặc có lỗi từ API.
-     */
     async deleteWorkHistory(id) {
         try {
             console.log('🗑️ WORK HISTORY SERVICE: Deleting work history:', id);
@@ -286,7 +188,6 @@ class WorkHistoryService extends BaseService {
 
             const response = await LarkClient.delete(`/bitable/v1/apps/${this.baseId}/tables/${this.tableId}/records/${id}`);
             
-            // THÊM: Kiểm tra mã lỗi từ Lark API
             if (response.code !== 0) {
                 throw new Error(`Lỗi từ Lark API khi xóa: ${response.msg} (code: ${response.code})`);
             }
@@ -309,12 +210,10 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-    // ✅ THÊM MỚI: Method để xóa tất cả work history của một employee
     async deleteAllWorkHistoryByEmployee(employeeId) {
         try {
             console.log(`🗑️ Deleting all work history for employee: ${employeeId}`);
             
-            // Lấy tất cả work history của employee
             const workHistories = await this.getWorkHistoryByEmployee(employeeId);
             
             if (workHistories.length === 0) {
@@ -322,7 +221,6 @@ class WorkHistoryService extends BaseService {
                 return { success: true, deletedCount: 0 };
             }
             
-            // Xóa từng record
             const deletePromises = workHistories.map(wh => 
                 this.deleteWorkHistory(wh.id)
             );
@@ -350,26 +248,18 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-
     // =================================================================
     // HÀM TIỆN ÍCH NỘI BỘ - INTERNAL HELPERS
     // =================================================================
 
-    /**
-     * Lấy và cache dữ liệu lương từ bảng lương.
-     * Dữ liệu này được dùng để làm giàu thông tin cho lịch sử công tác.
-     * @returns {Promise<Array<Object>>} Mảng các đối tượng lương đã được xử lý.
-     */
     async getSalaryData() {
         const cacheKey = 'salary_data_all';
         let salaryData = CacheService.get(cacheKey);
-
 
         if (salaryData) {
             console.log(`✅ SALARY: Loaded ${salaryData.length} records from cache.`);
             return salaryData;
         }
-
 
         try {
             console.log('📡 SALARY: Fetching salary data from Lark...');
@@ -377,12 +267,10 @@ class WorkHistoryService extends BaseService {
                 `/bitable/v1/apps/${this.baseId}/tables/${this.salaryTableId}/records`
             );
 
-
             salaryData = this.transformSalaryData(response.data?.items || []);
             console.log(`✅ SALARY: Transformed ${salaryData.length} total records.`);
 
-
-            CacheService.set(cacheKey, salaryData, 300000); // Cache 5 phút
+            CacheService.set(cacheKey, salaryData, 300000);
             return salaryData;
         } catch (error) {
             console.error('❌ Error getting salary data:', error);
@@ -390,11 +278,6 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-    /**
-     * Xác thực các trường cơ bản của một đối tượng lịch sử công tác.
-     * @param {Object} workHistoryData - Dữ liệu lịch sử công tác.
-     * @throws {Error} Ném lỗi nếu có trường không hợp lệ.
-     */
     validateWorkHistoryFields(workHistoryData, recruitmentDetails) {
         const { fromDate, toDate, hourlyRate } = workHistoryData;
         
@@ -402,30 +285,34 @@ class WorkHistoryService extends BaseService {
             throw new Error('Từ ngày và Đến ngày là bắt buộc.');
         }
 
-        const fromDateObj = new Date(fromDate);
-        const toDateObj = new Date(toDate);
-        
-        if (isNaN(fromDateObj.getTime()) || isNaN(toDateObj.getTime())) {
+        // ✅ SỬA: Sử dụng TimezoneService thay vì tự tạo date
+        if (!TimezoneService.isValidDate(fromDate) || !TimezoneService.isValidDate(toDate)) {
             throw new Error('Định dạng ngày không hợp lệ.');
         }
 
-        if (toDateObj < fromDateObj) {
+        // ✅ SỬA: Sử dụng TimezoneService để so sánh ngày
+        if (!TimezoneService.isDateBefore(fromDate, toDate) && !TimezoneService.isDateAfter(fromDate, toDate)) {
+            // Nếu không phải before và không phải after thì có thể bằng nhau, điều này OK
+        } else if (TimezoneService.isDateAfter(fromDate, toDate)) {
             throw new Error('Đến ngày phải lớn hơn hoặc bằng Từ ngày.');
         }
 
         if (recruitmentDetails && recruitmentDetails.fromDate && recruitmentDetails.toDate) {
-            const recruitmentStart = new Date(recruitmentDetails.fromDate);
-            const recruitmentEnd = new Date(recruitmentDetails.toDate);
+            // ✅ SỬA: Sử dụng TimezoneService để kiểm tra khoảng ngày có nằm trong recruitment không
+            const workStartVietnam = TimezoneService.toVietnamTime(fromDate);
+            const workEndVietnam = TimezoneService.toVietnamTime(toDate);
+            const recruitmentStartVietnam = TimezoneService.toVietnamTime(recruitmentDetails.fromDate);
+            const recruitmentEndVietnam = TimezoneService.toVietnamTime(recruitmentDetails.toDate);
 
-            // ✅ SỬA: Normalize về đầu ngày để tránh lỗi precision
-            fromDateObj.setHours(0, 0, 0, 0);
-            toDateObj.setHours(23, 59, 59, 999);  // Cuối ngày để inclusive
-            recruitmentStart.setHours(0, 0, 0, 0);
-            recruitmentEnd.setHours(23, 59, 59, 999);
+            // Normalize về đầu ngày và cuối ngày
+            workStartVietnam.setUTCHours(0, 0, 0, 0);
+            workEndVietnam.setUTCHours(23, 59, 59, 999);
+            recruitmentStartVietnam.setUTCHours(0, 0, 0, 0);
+            recruitmentEndVietnam.setUTCHours(23, 59, 59, 999);
 
-            if (fromDateObj < recruitmentStart || toDateObj > recruitmentEnd) {
+            if (workStartVietnam < recruitmentStartVietnam || workEndVietnam > recruitmentEndVietnam) {
                 throw new Error(
-                    `Khoảng ngày làm việc (${formatDate(fromDate)} - ${formatDate(toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
+                    `Khoảng ngày làm việc (${TimezoneService.formatDate(fromDate)} - ${TimezoneService.formatDate(toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${TimezoneService.formatDate(recruitmentDetails.fromDate)} - ${TimezoneService.formatDate(recruitmentDetails.toDate)}).`
                 );
             }
         }
@@ -435,35 +322,27 @@ class WorkHistoryService extends BaseService {
         }
     }
 
-
-    /**
-     * Xác thực khoảng ngày làm việc, đảm bảo không trùng với các lịch sử đã có
-     * và phải nằm trong khoảng ngày của đề xuất tuyển dụng liên quan.
-     * @param {string} employeeId - Mã nhân viên.
-     * @param {Object} workHistoryData - Dữ liệu lịch sử công tác mới.
-     * @param {Object} recruitmentService - Instance của RecruitmentService.
-     * @throws {Error} Ném lỗi nếu có sự chồng chéo ngày hoặc ngày nằm ngoài đề xuất.
-     */
     async validateWorkHistoryDateOverlap(employeeId, workHistoryData, recruitmentService) {
         console.log(`🔍 VALIDATING DATE OVERLAP: Employee ${employeeId}, New work period: ${workHistoryData.fromDate} - ${workHistoryData.toDate}`);
 
         // ✅ BƯỚC 1: Validate khoảng ngày có nằm trong đề xuất tuyển dụng không
         const recruitmentDetails = await recruitmentService.getRequestByNo(workHistoryData.requestNo);
         if (recruitmentDetails && recruitmentDetails.fromDate && recruitmentDetails.toDate) {
-            const workStart = new Date(workHistoryData.fromDate);
-            const workEnd = new Date(workHistoryData.toDate);
-            const recruitmentStart = new Date(recruitmentDetails.fromDate);
-            const recruitmentEnd = new Date(recruitmentDetails.toDate);
+            // ✅ SỬA: Sử dụng TimezoneService thay vì tự tạo date
+            const workStartVietnam = TimezoneService.toVietnamTime(workHistoryData.fromDate);
+            const workEndVietnam = TimezoneService.toVietnamTime(workHistoryData.toDate);
+            const recruitmentStartVietnam = TimezoneService.toVietnamTime(recruitmentDetails.fromDate);
+            const recruitmentEndVietnam = TimezoneService.toVietnamTime(recruitmentDetails.toDate);
 
-            // Normalize về đầu ngày để tránh lỗi precision
-            workStart.setHours(0, 0, 0, 0);
-            workEnd.setHours(23, 59, 59, 999);
-            recruitmentStart.setHours(0, 0, 0, 0);
-            recruitmentEnd.setHours(23, 59, 59, 999);
+            // Normalize về đầu ngày và cuối ngày
+            workStartVietnam.setUTCHours(0, 0, 0, 0);
+            workEndVietnam.setUTCHours(23, 59, 59, 999);
+            recruitmentStartVietnam.setUTCHours(0, 0, 0, 0);
+            recruitmentEndVietnam.setUTCHours(23, 59, 59, 999);
 
-            if (workStart < recruitmentStart || workEnd > recruitmentEnd) {
+            if (workStartVietnam < recruitmentStartVietnam || workEndVietnam > recruitmentEndVietnam) {
                 throw new Error(
-                    `Khoảng ngày làm việc (${formatDate(workHistoryData.fromDate)} - ${formatDate(workHistoryData.toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${formatDate(recruitmentDetails.fromDate)} - ${formatDate(recruitmentDetails.toDate)}).`
+                    `Khoảng ngày làm việc (${TimezoneService.formatDate(workHistoryData.fromDate)} - ${TimezoneService.formatDate(workHistoryData.toDate)}) phải nằm trong khoảng ngày của đề xuất tuyển dụng (${TimezoneService.formatDate(recruitmentDetails.fromDate)} - ${TimezoneService.formatDate(recruitmentDetails.toDate)}).`
                 );
             }
         }
@@ -475,24 +354,22 @@ class WorkHistoryService extends BaseService {
             return;
         }
 
-        const newWorkStart = new Date(workHistoryData.fromDate);
-        const newWorkEnd = new Date(workHistoryData.toDate);
-
         for (const oldHistory of existingHistories) {
-            // ⚠️ QUAN TRỌNG: So sánh với ngày thực tế làm việc, không phải ngày đề xuất
             if (!oldHistory.fromDate || !oldHistory.toDate) {
-                continue; // Skip nếu không có thông tin ngày
+                continue;
             }
 
-            const oldWorkStart = new Date(oldHistory.fromDate);
-            const oldWorkEnd = new Date(oldHistory.toDate);
-
-            // Kiểm tra overlap giữa 2 khoảng ngày thực tế làm việc
-            if (dateRangesOverlap(newWorkStart, newWorkEnd, oldWorkStart, oldWorkEnd)) {
-                const formattedNewStart = formatDate(workHistoryData.fromDate);
-                const formattedNewEnd = formatDate(workHistoryData.toDate);
-                const formattedOldStart = formatDate(oldHistory.fromDate);
-                const formattedOldEnd = formatDate(oldHistory.toDate);
+            // ✅ SỬA: Sử dụng TimezoneService để kiểm tra overlap
+            if (TimezoneService.dateRangesOverlap(
+                workHistoryData.fromDate, 
+                workHistoryData.toDate, 
+                oldHistory.fromDate, 
+                oldHistory.toDate
+            )) {
+                const formattedNewStart = TimezoneService.formatDate(workHistoryData.fromDate);
+                const formattedNewEnd = TimezoneService.formatDate(workHistoryData.toDate);
+                const formattedOldStart = TimezoneService.formatDate(oldHistory.fromDate);
+                const formattedOldEnd = TimezoneService.formatDate(oldHistory.toDate);
 
                 throw new Error(`Khoảng thời gian làm việc từ ${formattedNewStart} đến ${formattedNewEnd} bị trùng với lịch sử làm việc cũ (từ ${formattedOldStart} đến ${formattedOldEnd}, mã đề xuất ${oldHistory.requestNo}).`);
             }
@@ -557,7 +434,6 @@ class WorkHistoryService extends BaseService {
                 fromDate: record.fields['Từ ngày'] || null,
                 toDate: record.fields['Đến ngày'] || null,
                 hourlyRate: record.fields['Mức lương/giờ'] || hourlyRateFromSalary || null,
-                // SỬA: Lấy giá trị thực từ Lark, không tự tạo mới
                 createdAt: record.fields['Created At'] || null, 
                 updatedAt: record.fields['Updated At'] || null
             };
@@ -572,19 +448,8 @@ class WorkHistoryService extends BaseService {
         }));
     }
 
-    /**
-     * Biến đổi (transform) dữ liệu thô về lịch sử công tác từ Lark Bitable
-     * thành một cấu trúc dữ liệu sạch sẽ, chuẩn hóa và dễ sử dụng hơn trong ứng dụng.
-     *
-     * @param {Array<Object>} larkData - Mảng chứa các bản ghi (record) thô từ API của Lark.
-     *                                  Mỗi record chứa một thuộc tính `fields` với dữ liệu thực tế.
-     * @returns {Array<Object>} Một mảng mới chứa các đối tượng lịch sử công tác đã được định dạng lại.
-     */
     transformWorkHistoryData(larkData) {
-        // Sử dụng phương thức `map()` để duyệt qua từng `record` trong mảng `larkData` và trả về một mảng mới chứa các đối tượng đã được định dạng lại.
-
         return larkData.map(record => {
-            // Đối với mỗi record, tạo và trả về một đối tượng mới với cấu trúc đã được chuẩn hóa.
             return {
                 id: record.record_id,
                 employeeId: record.fields['Mã nhân viên'] || '',
@@ -617,7 +482,7 @@ class WorkHistoryService extends BaseService {
         return '';
     }
 
-    // ✅ THÊM: Helper method
+    // ✅ SỬA: Sử dụng TimezoneService để convert timestamp
     convertTimestampToDateString(timestamp) {
         if (!timestamp) return null;
         
@@ -635,33 +500,33 @@ class WorkHistoryService extends BaseService {
                 return null;
             }
             
-            if (isNaN(date.getTime())) {
+            if (!TimezoneService.isValidDate(date)) {
                 console.warn('⚠️ Invalid date:', timestamp);
                 return null;
             }
             
-            return date.toISOString().split('T')[0]; // Return YYYY-MM-DD format
+            // ✅ SỬA: Sử dụng TimezoneService để convert về date string
+            return TimezoneService.larkTimestampToDateString(date.getTime());
         } catch (error) {
             console.error('❌ Error converting timestamp:', error);
             return null;
         }
     }
 
+    // ✅ SỬA: Sử dụng TimezoneService để transform cho Lark
     transformWorkHistoryForLark(workHistoryData) {
         const larkData = {
             'Mã nhân viên': workHistoryData.employeeId,
             'Request No.': workHistoryData.requestNo
         };
 
-        // ✅ Convert string date to timestamp
+        // ✅ SỬA: Sử dụng TimezoneService để convert date string thành timestamp
         if (workHistoryData.fromDate) {
-            const fromDate = new Date(workHistoryData.fromDate);
-            larkData['Từ ngày'] = fromDate.getTime(); // Convert to timestamp
+            larkData['Từ ngày'] = TimezoneService.dateStringToLarkTimestamp(workHistoryData.fromDate);
         }
 
         if (workHistoryData.toDate) {
-            const toDate = new Date(workHistoryData.toDate);
-            larkData['Đến ngày'] = toDate.getTime(); // Convert to timestamp
+            larkData['Đến ngày'] = TimezoneService.dateStringToLarkTimestamp(workHistoryData.toDate);
         }
 
         if (workHistoryData.hourlyRate !== undefined && workHistoryData.hourlyRate !== null) {
@@ -670,8 +535,6 @@ class WorkHistoryService extends BaseService {
 
         return larkData;
     }
-
 }
-
 
 export default WorkHistoryService;
